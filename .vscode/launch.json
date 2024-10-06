@@ -20,7 +20,7 @@
             "type": "python",
             "request": "launch",
             "program": "image.py",
-            "args": ["I:\\Users\\junwi\\photography\\work\\2024\\2024Aug_wales\\Output\\mls_web"],
+            "args": ["I:\\photography\\work\\2024\\2024_08_uktrip\\Output\\mls_web"],
             "console": "integratedTerminal",
             "justMyCode": true
         }
