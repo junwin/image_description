@@ -3,7 +3,8 @@ import argparse
 import json
 import base64
 import requests
-from PIL import Image
+import subprocess
+from PIL import Image, JpegImagePlugin, PngImagePlugin
 
 # Load OpenAI credentials from environment variables
 credential_path = os.getenv("CREDENTIAL_PATH", "/home/your_user_id/credential")
@@ -11,7 +12,6 @@ with open(os.path.join(credential_path, "oaicred.json"), "r") as config_file:
     config_data = json.load(config_file)
 
 openai_api_key = os.getenv("OPENAI_API_KEY", config_data.get("openai_api_key"))
-
 
 
 def sanitize_description(description):
@@ -40,7 +40,6 @@ def parse_keywords(keywords_section):
     return keywords
 
 
-
 def parse_iptc_data(iptc_data):
     """#
     Parse IPTC binary data and return a dictionary of IPTC properties.
@@ -62,7 +61,7 @@ def parse_iptc_data(iptc_data):
         typeMinor = int.from_bytes(iptc_data[start+2:start+3], byteorder='big')
         tag_type = str(typeMajor) + ":" + str(typeMinor)
         tag_len = int.from_bytes(iptc_data[start+3:start+5], byteorder='big')
-        tag_end = start + 5 + tag_len 
+        tag_end = start + 5 + tag_len
         
         tag_value = iptc_data[start+5:tag_end].decode('utf-8')
         # print(start, tag_type, tag_len, tag_end, tag_value)
@@ -232,12 +231,12 @@ def generate_openai_description_and_keywords(image_path, existing_title, existin
 import os
 
 def process_image(file_path):
-    # Determine the output .txt file name
-    txt_file_path = file_path.rsplit('.', 1)[0] + '.txt'
+    # Determine the output .json file name
+    json_file_path = file_path.rsplit('.', 1)[0] + '.json'
 
-    # Skip processing if the .txt file already exists
-    if os.path.exists(txt_file_path):
-        print(f"Skipping {file_path} as {txt_file_path} already exists.")
+    # Skip processing if the .json file already exists
+    if os.path.exists(json_file_path):
+        print(f"Skipping {file_path} as {json_file_path} already exists.")
         return
 
     # Extract existing metadata
@@ -263,32 +262,84 @@ def process_image(file_path):
     print(f"Enhanced Description: {enhanced_description}")
     print(f"Keywords: {keywords}")
 
-    # Merge existing and new keywords
-    merged_keywords = list(set(existing_keywords + keywords))
+    # Merge existing and new keywords, ensure lowercase and remove duplicates
+    merged_keywords = list(set((existing_keywords + keywords)))
+    merged_keywords = [kw.lower() for kw in merged_keywords]
 
-    # Prepare hashtags
-    hashtags = [f"#{kw}" for kw in merged_keywords]
+    # Prepare hashtags as a single string, ensure lowercase and remove duplicates
+    hashtags = ' '.join([f"#{kw}" for kw in merged_keywords])
 
-    
     # Debug: Print merged keywords
     print(f"Merged Keywords: {merged_keywords}")
     
-    # Write the title, descriptions, and keywords to the .txt file
-    with open(txt_file_path, 'w') as f:
-        f.write(f"Title: {existing_title}\n\n")
-        f.write(f"Visually Challenged Description: {visually_challenged_description}\n\n")
-        f.write(f"Enhanced Description: {enhanced_description}\n\n")
-        f.write(f"Keywords: {', '.join(merged_keywords)}\n\n")
-        f.write(f"Hashtags: {', '.join(hashtags)}\n")
+    # Write the title, descriptions, and keywords to the .json file
+    metadata = {
+        "title": existing_title,
+        "visually_challenged_description": visually_challenged_description,
+        "enhanced_description": enhanced_description,
+        "keywords": merged_keywords,
+        "hashtags": hashtags
+    }
 
-    print(f"Wrote metadata to {txt_file_path}")
+    with open(json_file_path, 'w') as f:
+        json.dump(metadata, f, indent=4)
+
+    print(f"Wrote metadata to {json_file_path}")
+
+def process_json_and_update_image(json_file_path):
+    """Read metadata from a .json file and update the corresponding image using ExifTool."""
+    with open(json_file_path, 'r') as f:
+        metadata = json.load(f)
+    
+    # Determine the corresponding image file path
+    image_file_path_jpg = json_file_path.rsplit('.', 1)[0] + '.jpg'
+    image_file_path_png = json_file_path.rsplit('.', 1)[0] + '.png'
+    if os.path.exists(image_file_path_jpg):
+        image_file_path = image_file_path_jpg
+    elif os.path.exists(image_file_path_png):
+        image_file_path = image_file_path_png
+    else:
+        print(f"No corresponding image found for JSON {json_file_path}")
+        return
+
+    # Update metadata using ExifTool, setting each keyword separately
+    cmd_base = [
+        'exiftool',
+        f'-ImageDescription={metadata.get("enhanced_description", "")}',
+        f'-Caption-Abstract={metadata.get("enhanced_description", "")}',
+        f'-Description={metadata.get("enhanced_description", "")}',
+        f'-ObjectName={metadata.get("title", "")}',
+        f'-Title={metadata.get("title", "")}'
+    ]
+
+    for keyword in metadata.get("keywords", []):
+        keyword_no_spaces = keyword.replace(' ', '')
+        cmd_base.append(f'-keywords+={keyword_no_spaces}')
+
+    cmd_base.append('-overwrite_original')
+    cmd_base.append(image_file_path)
+
+    # Log the command line being used
+    print(f"Running command: {' '.join(cmd_base)}")
+
+    # Execute the command and capture the output
+    result = subprocess.run(cmd_base, capture_output=True, text=True)
+
+    # Log the output from ExifTool
+    print("ExifTool Output:")
+    print(result.stdout)
+    if result.stderr:
+        print("ExifTool Error:")
+        print(result.stderr)
 
 def process_folder(directory):
     for file_name in os.listdir(directory):
         if file_name.endswith(('.jpg', '.jpeg', '.png')):
             file_path = os.path.join(directory, file_name)
             process_image(file_path)
-
+        elif file_name.endswith('.json'):
+            json_file_path = os.path.join(directory, file_name)
+            process_json_and_update_image(json_file_path)
 
 def main():
     parser = argparse.ArgumentParser(description='Process images in a directory with OpenAI and IPTC Meta')
