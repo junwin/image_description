@@ -150,18 +150,18 @@ def generate_openai_description_and_keywords(image_path, existing_title, existin
         "Authorization": f"Bearer {openai_api_key}"
     }
 
-    # Include existing metadata in the prompt and request a JSON response
+   # Refined prompt to limit the enhanced description naturally to 300 characters
     prompt = f"""
     You are an assistant tasked with enhancing the metadata of an image. Here's the existing information:
-    
+
     Title: {existing_title}
     Description: {existing_description}
     Keywords: {', '.join(existing_keywords)}
-    
+
     Please return the following in plain JSON format without any additional formatting or code blocks:
-    1) A description of this image suitable for someone who is visually challenged.
-    2) An enhanced description discussing the artistic rationale behind the image based on the provided title and description - keep the text first person, simple and not too wordy
-    3) A set of keywords suitable for social media, listed as an array.
+    1) A description of this image suitable for someone who is visually challenged. Focus solely on describing the image as it appears, without interpretation or embellishment.
+    2) An enhanced description discussing the artistic rationale behind the image based on the provided title and description. The enhanced description should be limited to 300 characters and still read as a complete, coherent idea.
+    3) A set of keywords suitable for social media engagement, listed as an array.
 
     Respond in the following JSON format:
     {{
@@ -171,8 +171,9 @@ def generate_openai_description_and_keywords(image_path, existing_title, existin
     }}
     """
 
+
     payload = {
-        "model": "gpt-4o-mini",
+        "model": "gpt-4o",
         "messages": [
             {
                 "role": "user",

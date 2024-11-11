@@ -7,6 +7,7 @@
 
 
 
+
         {
             "name": "Python: Current File",
             "type": "python",
@@ -20,7 +21,7 @@
             "type": "python",
             "request": "launch",
             "program": "image.py",
-            "args": ["e:\\photography\\work\\2024\\2024Oct\\Output"],
+            "args": ["e:\\photography\\work\\2024\\2024Aug_wales\\Output"],
             "console": "integratedTerminal",
             "justMyCode": true
         }
