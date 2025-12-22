@@ -2,355 +2,413 @@ import os
 import argparse
 import json
 import base64
-import requests
 import subprocess
-from PIL import Image, JpegImagePlugin, PngImagePlugin
+from typing import Any, Dict, List, Optional, Tuple
 
-# Load OpenAI credentials from environment variables
-credential_path = os.getenv("CREDENTIAL_PATH", "/home/your_user_id/credential")
-with open(os.path.join(credential_path, "oaicred.json"), "r") as config_file:
-    config_data = json.load(config_file)
+from PIL import Image
+from openai import OpenAI
+
+
+# -----------------------------------------------------------------------------
+# Config + credential loading (aligned with lucy project)
+# -----------------------------------------------------------------------------
+
+
+class ConfigManager:
+    def __init__(self, config_path: str):
+        self._config_path = config_path
+        self._config: Dict[str, Any] = {}
+        self._load()
+
+    def _load(self) -> None:
+        if os.path.exists(self._config_path):
+            with open(self._config_path, "r", encoding="utf-8") as f:
+                self._config = json.load(f)
+        else:
+            self._config = {}
+
+    def get(self, key: str, default: Any = None) -> Any:
+        return self._config.get(key, default)
+
+
+_config = ConfigManager("config.json")
+credential_path = os.getenv(
+    "CREDENTIAL_PATH", _config.get("credential_path", os.path.expanduser("~/credential"))
+)
+
+with open(os.path.join(credential_path, "oaicred.json"), "r", encoding="utf-8") as f:
+    config_data = json.load(f)
 
 openai_api_key = os.getenv("OPENAI_API_KEY", config_data.get("openai_api_key"))
+client = OpenAI(api_key=openai_api_key)
 
 
-def sanitize_description(description):
-    """Sanitize the description to avoid issues with command line execution."""
-    sanitized_description = description.replace('"', "'").replace('\n', ' ')
-    return sanitized_description
+# -----------------------------------------------------------------------------
+# Constants and prompt presets
+# -----------------------------------------------------------------------------
 
-def encode_image(image_path):
-    """Encode an image to base64."""
-    with open(image_path, "rb") as image_file:
-        return base64.b64encode(image_file.read()).decode('utf-8')
+SUPPORTED_EXTENSIONS = {".jpg", ".jpeg", ".png", ".JPG", ".JPEG", ".PNG"}
+MAX_FILE_SIZE_MB = 20
 
-def clean_markdown(text):
-    """Remove markdown symbols and clean up the text."""
-    text = text.replace('**', '').strip()  # Remove bold markers
-    return text
-
-def parse_keywords(keywords_section):
-    """Parse the keywords section to extract a list of keywords."""
-    keywords = []
-    for line in keywords_section.splitlines():
-        line = line.strip()
-        if line.startswith('-'):
-            keyword = line.lstrip('-').strip().replace(' ', '')  # Remove spaces from keywords
-            keywords.append(keyword)
-    return keywords
-
-
-def parse_iptc_data(iptc_data):
-    """#
-    Parse IPTC binary data and return a dictionary of IPTC properties.
-
-    :param iptc_data: A byte array containing IPTC binary data.
-    :returns: A dictionary containing IPTC properties.
-    """
-    #hexdump.hexdump(iptc_data, 'print')
-    results = {}
-    tag_start = b'\x1c\x02'
-    pos = 0
-
-    while True:
-        start = iptc_data.find(tag_start, pos)
-        if start < 0:
-            break
-
-        typeMajor = int.from_bytes(iptc_data[start+1:start+2], byteorder='big')
-        typeMinor = int.from_bytes(iptc_data[start+2:start+3], byteorder='big')
-        tag_type = str(typeMajor) + ":" + str(typeMinor)
-        tag_len = int.from_bytes(iptc_data[start+3:start+5], byteorder='big')
-        tag_end = start + 5 + tag_len
-        
-        tag_value = iptc_data[start+5:tag_end].decode('utf-8')
-        # print(start, tag_type, tag_len, tag_end, tag_value)
-        tag_key = IPTC_TAG_TYPES.get(str(tag_type), 'Unknown')
-        if tag_key in results:
-            if not isinstance(results[tag_key], list):
-                results[tag_key] = [results[tag_key]]
-            results[tag_key].append(tag_value)
-        else:
-            results[tag_key] = tag_value
-        pos = tag_end
-    return results
-
-
-def showImageIptcMeta(file_path):
-    """Extract existing IPTC metadata."""
-    with Image.open(file_path) as img:
-        iptc = img.info.get('photoshop', {})
-        iptcInfo = iptc.get(1028, b'')
-        results = parse_iptc_data(iptcInfo)
-        title = results.get('Object Attribute', '')
-        description = results.get('Caption/Abstract Writer', '')
-        keywords = results.get('Keywords', [])
-        processed_keywords = [''.join([word.capitalize() for word in keyword.split()]) for keyword in keywords]
-        return title, description, processed_keywords
-    
-
-IPTC_TAG_TYPES = {
-    "2:0": "Record Version",
-    "2:3": "Object Type",
-    "2:5": "Object Attribute",
-    "2:7": "Object Name",
-    "2:10": "Edit Status",
-    "2:12": "Editorial Update",
-    "2:15": "Urgency",
-    "2:20": "Keyword",
-    "2:22": "Category",
-    "2:25": "Keywords",
-    "2:26": "Location",
-    "2:27": "City",
-    "2:30": "Caption/Abstract",
-    "2:40": "Instructions",
-    "2:55": "Date Created",
-    "2:60": "Time Created",
-    "2:62": "Digital Creation Date/Time",
-    "2:63": "Originating Program",
-    "2:80": "Byline",
-    "2:85": "Byline Title",
-    "2:90": "City",
-    "2:92": "Sublocation",
-    "2:95": "State/Province",
-    "2:100": "Country/Primary Location Name",
-    "2:101": "Country/Primary Location Code",
-    "2:103": "Original Transmission Reference",
-    "2:105": "Headline",
-    "2:110": "Credit",
-    "2:115": "Source",
-    "2:116": "Copyright Notice",
-    "2:118": "Contact",
-    "2:120": "Caption/Abstract Writer",
-    "2:122": "Rasterized Caption",
-    "2:130": "Content Location Code",
-    "2:131": "Content Location Name",
-    "2:135": "ICC Profile",
-    "2:150": "Writer/Editor",
-    "2:151": "Image Type",
-    "2:184": "Job ID",
-    "2:185": "Master Document ID",
-    "2:186": "Short Document ID",
-    "2:187": "Unique Document ID",
-    "2:188": "Owner ID",
-    "2:200": "Object Preview File Format",
-    "2:201": "Object Preview File Format Version",
-    "2:202": "Object Preview Data"
+PROMPT_PRESETS: Dict[str, str] = {
+    "orwell_basic": (
+        "You are a careful, precise writer. "
+        "Describe the image in clear, concrete language. "
+        "Avoid jargon and unnecessary words. "
+        "Return JSON with the following keys: "
+        "'visually_challenged_description' (one paragraph), "
+        "'enhanced_description' (one paragraph), and "
+        "'keywords' (a list of 8-15 short keywords)."
+    ),
+    "orwell_ways_of_seeing": (
+        "Act as a thoughtful artist and writer. "
+        "Consider John Berger's separation of (a) what the image is and (b) what it is trying to say. "
+        "Lean toward what the image is trying to say, but stay grounded in what is visible. "
+        "Please adhere strictly to the following style guidelines: "
+        "1. Follow George Orwell's rules: use short words, cut unnecessary words, and avoid jargon. "
+        "2. Use a minimalist and evocative style. Be precise, not flowery. "
+        "3. Adopt a reflective, understated tone. Avoid any boastfulness. "
+        "4. Use a two-sentence structure if possible: first a direct description, then a reflective observation. "
+        "Keep the final output concise. "
+        "Return JSON with the following keys: "
+        "'visually_challenged_description' (one paragraph), "
+        "'enhanced_description' (one paragraph), and "
+        "'keywords' (a list of 8-15 short keywords)."
+    ),
 }
 
-IPTC_TAG_TYPES_INV = {v: k for k, v in IPTC_TAG_TYPES.items()}
+
+def build_prompt(
+    preset_name: str,
+    title: str,
+    description: str,
+    existing_keywords: List[str],
+) -> str:
+    base_prompt = PROMPT_PRESETS.get(preset_name, PROMPT_PRESETS["orwell_ways_of_seeing"])
+    kw_str = ", ".join(existing_keywords) if existing_keywords else "(none)"
+
+    return (
+        f"{base_prompt}\n\n"
+        f"Here is some metadata I already have – this typically deals with what the image is.\n\n"
+        f"Title: {title}\n"
+        f"Existing description: {description}\n"
+        f"Existing keywords: {kw_str}\n\n"
+        f"Please respond ONLY with a single JSON object matching the requested keys."
+    )
 
 
-def generate_openai_description_and_keywords(image_path, existing_title, existing_description, existing_keywords):
-    """Generate descriptions for the visually challenged and an enhanced description along with keywords using OpenAI."""
-    base64_image = encode_image(image_path)
-
-    headers = {
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {openai_api_key}"
-    }
-
-   # Refined prompt to limit the enhanced description naturally to 300 characters
-    prompt = f"""
-    You are an assistant tasked with enhancing the metadata of an image. Here's the existing information:
-
-    Title: {existing_title}
-    Description: {existing_description}
-    Keywords: {', '.join(existing_keywords)}
-
-    Please return the following in plain JSON format without any additional formatting or code blocks:
-    1) A description of this image suitable for someone who is visually challenged. Focus solely on describing the image as it appears, without interpretation or embellishment.
-    2) An enhanced description discussing the artistic rationale behind the image based on the provided title and description. The enhanced description should be limited to 300 characters and still read as a complete, coherent idea.
-    3) A set of keywords suitable for social media engagement, listed as an array.
-
-    Respond in the following JSON format:
-    {{
-        "visually_challenged_description": "A description suitable for the visually challenged.",
-        "enhanced_description": "Your enhanced description discussing the artistic rationale.",
-        "keywords": ["keyword1", "keyword2", "keyword3"]
-    }}
-    """
+# -----------------------------------------------------------------------------
+# Utility functions
+# -----------------------------------------------------------------------------
 
 
-    payload = {
-        "model": "gpt-4o",
-        "messages": [
+def is_image_file(path: str) -> bool:
+    _, ext = os.path.splitext(path)
+    return ext in SUPPORTED_EXTENSIONS
+
+
+def file_size_mb(path: str) -> float:
+    return os.path.getsize(path) / (1024 * 1024)
+
+
+def encode_image_to_base64(path: str) -> str:
+    with open(path, "rb") as f:
+        return base64.b64encode(f.read()).decode("utf-8")
+
+
+def run_exiftool(args: List[str]) -> Tuple[int, str, str]:
+    """Run exiftool with given args, return (returncode, stdout, stderr)."""
+    cmd = ["exiftool"] + args
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    out, err = proc.communicate()
+    return proc.returncode, out, err
+
+
+def show_image_iptc_meta(file_path: str) -> Tuple[str, str, List[str]]:
+    """Return (title, description, keywords) from IPTC using exiftool."""
+    title = ""
+    description = ""
+    keywords: List[str] = []
+
+    code, out, err = run_exiftool([
+        "-IPTC:ObjectName",
+        "-IPTC:Caption-Abstract",
+        "-IPTC:Keywords",
+        file_path,
+    ])
+    if code != 0:
+        print(f"exiftool error reading IPTC from {file_path}: {err}")
+        return title, description, keywords
+
+    for line in out.splitlines():
+        if ":" not in line:
+            continue
+        key, value = line.split(":", 1)
+        key = key.strip()
+        value = value.strip()
+        if key.endswith("Object Name") or key.endswith("ObjectName"):
+            title = value
+        elif key.endswith("Caption-Abstract"):
+            description = value
+        elif key.endswith("Keywords"):
+            # exiftool may output multiple lines for multiple keywords
+            keywords.append(value)
+
+    return title, description, keywords
+
+
+def write_iptc_meta(
+    file_path: str,
+    title: Optional[str] = None,
+    description: Optional[str] = None,
+    keywords: Optional[List[str]] = None,
+) -> None:
+    args: List[str] = []
+    if title is not None:
+        args.append(f"-IPTC:ObjectName={title}")
+    if description is not None:
+        args.append(f"-IPTC:Caption-Abstract={description}")
+    if keywords is not None:
+        # Clear existing keywords then add new ones
+        args.append("-IPTC:Keywords=")
+        for kw in keywords:
+            args.append(f"-IPTC:Keywords+={kw}")
+
+    args.append(file_path)
+
+    code, out, err = run_exiftool(args)
+    if code != 0:
+        print(f"exiftool error writing IPTC to {file_path}: {err}")
+    else:
+        print(f"Updated IPTC metadata for {file_path}")
+
+
+# -----------------------------------------------------------------------------
+# OpenAI interaction
+# -----------------------------------------------------------------------------
+
+
+def generate_openai_description_and_keywords(
+    image_path: str,
+    title: str,
+    description: str,
+    existing_keywords: List[str],
+    preset: str = "orwell_ways_of_seeing",
+) -> Tuple[str, str, List[str]]:
+    """Call OpenAI vision model and return (vc_desc, enhanced_desc, keywords)."""
+
+    prompt = build_prompt(preset, title, description, existing_keywords)
+    image_b64 = encode_image_to_base64(image_path)
+
+    response = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[
             {
                 "role": "user",
                 "content": [
-                    {
-                        "type": "text",
-                        "text": prompt
-                    },
+                    {"type": "text", "text": prompt},
                     {
                         "type": "image_url",
                         "image_url": {
-                            "url": f"data:image/jpeg;base64,{base64_image}"
-                        }
-                    }
-                ]
+                            "url": f"data:image/jpeg;base64,{image_b64}",
+                        },
+                    },
+                ],
             }
         ],
-        "max_tokens": 300
-    }
-
-    print("DEBUG: Sending API request to OpenAI...")
-    #print(json.dumps(payload, indent=2))
-    
-    response = requests.post("https://api.openai.com/v1/chat/completions", headers=headers, json=payload)
-    
-    # Debug: Print the entire response for inspection
-    print("DEBUG: Full API Response:")
-    print(json.dumps(response.json(), indent=2))
-
-    response_data = response.json()
-
-    # Extracting the JSON content
-    try:
-        content = response_data['choices'][0]['message']['content']
-        
-        # Debug: Print the extracted content
-        print("DEBUG: Extracted Content:")
-        print(content)
-        
-        # Parse the JSON response
-        response_json = json.loads(content)
-        
-        # Extract the descriptions and keywords from the JSON
-        visually_challenged_description = response_json.get("visually_challenged_description", "No description available")
-        enhanced_description = response_json.get("enhanced_description", "No enhanced description available")
-        keywords = response_json.get("keywords", [])
-        
-    except (json.JSONDecodeError, KeyError, TypeError) as e:
-        print(f"DEBUG: Error parsing JSON response: {e}")
-        visually_challenged_description = 'No description available'
-        enhanced_description = 'No enhanced description available'
-        keywords = []
-
-    return visually_challenged_description, enhanced_description, keywords
-
-import os
-
-def process_image(file_path):
-    # Determine the output .json file name
-    json_file_path = file_path.rsplit('.', 1)[0] + '.json'
-
-    # Skip processing if the .json file already exists
-    if os.path.exists(json_file_path):
-        print(f"Skipping {file_path} as {json_file_path} already exists.")
-        return
-
-    # Extract existing metadata
-    existing_title, existing_description, existing_keywords = showImageIptcMeta(file_path)
-    
-    print(f"Existing Title: {existing_title}")
-    print(f"Existing Description: {existing_description}")
-    print(f"Existing Keywords: {existing_keywords}")
-    
-    # Analyze the image with OpenAI to generate the necessary descriptions and keywords
-    visually_challenged_description, enhanced_description, keywords = generate_openai_description_and_keywords(
-        file_path, 
-        existing_title, 
-        existing_description, 
-        existing_keywords
+        temperature=0.4,
     )
 
-    # Sanitize the descriptions to avoid issues with command line execution
-    visually_challenged_description = sanitize_description(visually_challenged_description)
-    enhanced_description = sanitize_description(enhanced_description)
-    
-    print(f"Visually Challenged Description: {visually_challenged_description}")
-    print(f"Enhanced Description: {enhanced_description}")
-    print(f"Keywords: {keywords}")
+    content = response.choices[0].message.content or ""
 
-    # Merge existing and new keywords, ensure lowercase and remove duplicates
-    merged_keywords = list(set((existing_keywords + keywords)))
-    merged_keywords = [kw.lower() for kw in merged_keywords]
+    # Try to extract JSON from the response
+    text = content.strip()
+    if text.startswith("```"):
+        # Strip code fences if present
+        lines = text.splitlines()
+        if lines[0].startswith("```"):
+            lines = lines[1:]
+        if lines and lines[-1].startswith("```"):
+            lines = lines[:-1]
+        text = "\n".join(lines).strip()
 
-    # Prepare hashtags as a single string, ensure lowercase and remove duplicates
-    hashtags = ' '.join([f"#{kw}" for kw in merged_keywords])
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError:
+        # Fallback: try to find a JSON object in the text
+        start = text.find("{")
+        end = text.rfind("}")
+        if start != -1 and end != -1 and end > start:
+            try:
+                data = json.loads(text[start : end + 1])
+            except json.JSONDecodeError:
+                raise RuntimeError(f"Model response was not valid JSON: {text}")
+        else:
+            raise RuntimeError(f"Model response was not valid JSON: {text}")
 
-    # Debug: Print merged keywords
-    print(f"Merged Keywords: {merged_keywords}")
-    
-    # Write the title, descriptions, and keywords to the .json file
-    metadata = {
+    vc_desc = data.get("visually_challenged_description", "").strip()
+    enhanced_desc = data.get("enhanced_description", "").strip()
+    new_keywords = data.get("keywords", [])
+    if not isinstance(new_keywords, list):
+        new_keywords = [str(new_keywords)]
+
+    return vc_desc, enhanced_desc, [str(k).strip() for k in new_keywords if str(k).strip()]
+
+
+# -----------------------------------------------------------------------------
+# Core processing
+# -----------------------------------------------------------------------------
+
+
+def merge_keywords(existing: List[str], new: List[str]) -> List[str]:
+    seen = set()
+    merged: List[str] = []
+    for kw in existing + new:
+        norm = kw.strip()
+        if not norm:
+            continue
+        lower = norm.lower()
+        if lower not in seen:
+            seen.add(lower)
+            merged.append(norm)
+    return merged
+
+
+def build_hashtags(keywords: List[str]) -> str:
+    tags = ["#" + kw.replace(" ", "").lower() for kw in keywords]
+    return " ".join(tags)
+
+
+def process_image(image_path: str, preset: str = "orwell_ways_of_seeing") -> None:
+    if not is_image_file(image_path):
+        print(f"Skipping non-image file: {image_path}")
+        return
+
+    size_mb = file_size_mb(image_path)
+    if size_mb > MAX_FILE_SIZE_MB:
+        print(f"Skipping {image_path}: file size {size_mb:.2f} MB exceeds limit of {MAX_FILE_SIZE_MB} MB")
+        return
+
+    print(f"Processing {image_path} ({size_mb:.2f} MB)")
+
+    existing_title, existing_description, existing_keywords = show_image_iptc_meta(image_path)
+
+    # Call OpenAI to get descriptions and new keywords
+    vc_desc, enhanced_desc, new_keywords = generate_openai_description_and_keywords(
+        image_path,
+        existing_title,
+        existing_description,
+        existing_keywords,
+        preset=preset,
+    )
+
+    merged_keywords = merge_keywords(existing_keywords, new_keywords)
+    hashtags = build_hashtags(merged_keywords)
+
+    # JSON sidecar path
+    base, _ = os.path.splitext(image_path)
+    json_file_path = base + ".json"
+
+    metadata: Dict[str, Any] = {
+        # Original metadata from the image (what you wrote in your editor)
+        "original_title": existing_title,
+        "original_description": existing_description,
+
+        # Current working title (you can later change this to a shorter one if you like)
         "title": existing_title,
-        "visually_challenged_description": visually_challenged_description,
-        "enhanced_description": enhanced_description,
+
+        # AI-generated fields
+        "visually_challenged_description": vc_desc,
+        "enhanced_description": enhanced_desc,
         "keywords": merged_keywords,
-        "hashtags": hashtags
+        "hashtags": hashtags,
     }
 
-    with open(json_file_path, 'w') as f:
+    with open(json_file_path, "w", encoding="utf-8") as f:
         json.dump(metadata, f, indent=4)
 
     print(f"Wrote metadata to {json_file_path}")
 
-def process_json_and_update_image(json_file_path):
-    """Read metadata from a .json file and update the corresponding image using ExifTool."""
-    with open(json_file_path, 'r') as f:
-        metadata = json.load(f)
-    
-    # Determine the corresponding image file path
-    image_file_path_jpg = json_file_path.rsplit('.', 1)[0] + '.jpg'
-    image_file_path_png = json_file_path.rsplit('.', 1)[0] + '.png'
-    if os.path.exists(image_file_path_jpg):
-        image_file_path = image_file_path_jpg
-    elif os.path.exists(image_file_path_png):
-        image_file_path = image_file_path_png
-    else:
-        print(f"No corresponding image found for JSON {json_file_path}")
-        return
 
-    # Update metadata using ExifTool, setting each keyword separately
-    cmd_base = [
-        'exiftool',
-        f'-ImageDescription={metadata.get("enhanced_description", "")}',
-        f'-Caption-Abstract={metadata.get("enhanced_description", "")}',
-        f'-Description={metadata.get("enhanced_description", "")}',
-        f'-ObjectName={metadata.get("title", "")}',
-        f'-Title={metadata.get("title", "")}'
-    ]
+def process_directory(directory: str, preset: str = "orwell_ways_of_seeing") -> None:
+    for root, _, files in os.walk(directory):
+        for name in files:
+            path = os.path.join(root, name)
+            if is_image_file(path):
+                try:
+                    process_image(path, preset=preset)
+                except Exception as e:  # noqa: BLE001
+                    print(f"Error processing {path}: {e}")
 
-    for keyword in metadata.get("keywords", []):
-        keyword_no_spaces = keyword.replace(' ', '')
-        cmd_base.append(f'-keywords+={keyword_no_spaces}')
 
-    cmd_base.append('-overwrite_original')
-    cmd_base.append(image_file_path)
+def embed_metadata(directory: str) -> None:
+    """Read JSON sidecars and write selected fields back into image IPTC."""
+    for root, _, files in os.walk(directory):
+        for name in files:
+            path = os.path.join(root, name)
+            if not is_image_file(path):
+                continue
 
-    # Log the command line being used
-    print(f"Running command: {' '.join(cmd_base)}")
+            base, _ = os.path.splitext(path)
+            json_file_path = base + ".json"
+            if not os.path.exists(json_file_path):
+                continue
 
-    # Execute the command and capture the output
-    result = subprocess.run(cmd_base, capture_output=True, text=True)
+            try:
+                with open(json_file_path, "r", encoding="utf-8") as f:
+                    meta = json.load(f)
+            except Exception as e:  # noqa: BLE001
+                print(f"Error reading {json_file_path}: {e}")
+                continue
 
-    # Log the output from ExifTool
-    print("ExifTool Output:")
-    print(result.stdout)
-    if result.stderr:
-        print("ExifTool Error:")
-        print(result.stderr)
+            title = meta.get("title") or meta.get("original_title")
+            description = meta.get("enhanced_description") or meta.get("original_description")
+            keywords = meta.get("keywords") or []
+            if not isinstance(keywords, list):
+                keywords = [str(keywords)]
 
-def process_folder(directory):
-    for file_name in os.listdir(directory):
-        if file_name.endswith(('.jpg', '.jpeg', '.png')):
-            file_path = os.path.join(directory, file_name)
-            process_image(file_path)
-        elif file_name.endswith('.json'):
-            json_file_path = os.path.join(directory, file_name)
-            process_json_and_update_image(json_file_path)
+            write_iptc_meta(path, title=title, description=description, keywords=keywords)
 
-def main():
-    parser = argparse.ArgumentParser(description='Process images in a directory with OpenAI and IPTC Meta')
-    parser.add_argument('work_dir', type=str, help='the directory containing images to process')
+
+# -----------------------------------------------------------------------------
+# CLI
+# -----------------------------------------------------------------------------
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Describe images and manage metadata using OpenAI.")
+    subparsers = parser.add_subparsers(dest="command", required=True)
+
+    # describe command
+    describe_parser = subparsers.add_parser(
+        "describe",
+        help="Generate JSON sidecar files with descriptions and keywords.",
+    )
+    describe_parser.add_argument("path", help="Image file or directory to process.")
+    describe_parser.add_argument(
+        "--preset",
+        choices=list(PROMPT_PRESETS.keys()),
+        default="orwell_ways_of_seeing",
+        help="Prompt preset to use.",
+    )
+
+    # embed command
+    embed_parser = subparsers.add_parser(
+        "embed",
+        help="Embed metadata from JSON sidecars back into image IPTC.",
+    )
+    embed_parser.add_argument("directory", help="Directory containing images and JSON sidecars.")
+
     args = parser.parse_args()
-    work_dir = args.work_dir
-    if not os.path.isdir(work_dir):
-        print(f"The provided directory {work_dir} does not exist.")
-        exit(1)
-    process_folder(work_dir)
+
+    if args.command == "describe":
+        if os.path.isdir(args.path):
+            process_directory(args.path, preset=args.preset)
+        else:
+            process_image(args.path, preset=args.preset)
+    elif args.command == "embed":
+        embed_metadata(args.directory)
+
 
 if __name__ == "__main__":
     main()
