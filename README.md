@@ -2,6 +2,33 @@
 
 This project helps you generate rich, consistent metadata for your photographs using OpenAI vision models, and then export that metadata into formats you can reuse (JSON sidecars, Markdown/YAML exports, and Jekyll blog posts).
 
+CLI usage (recommended)
+
+- To see the available options for the CLIs use the module invocation (recommended when running from the repo):
+
+  - python -m src.image_description.cli.image_cli --help
+  - python -m src.image_description.cli.post_builder_cli --help
+  - python -m src.image_description.cli.blog_post_builder_cli --help
+
+- Target-state console scripts (when the package is installed) would be:
+
+  - image
+  - post-builder
+  - blog-post-builder
+
+  These console scripts map to the same CLI entry points as the module invocations above.
+
+- Developer wrapper scripts in the repo (for quick local execution) are the top-level Python files:
+
+  - image.py
+  - post_builder.py
+  - blog_post_builder.py
+
+  Relationship and guidance:
+  - The wrapper scripts (image.py, post_builder.py, blog_post_builder.py) are convenience entry points for running the tools directly from the project directory during development. They call into the same library code as the CLI entry points but are not the installed console scripts.
+  - For local development, you can run the wrapper scripts directly (e.g. `python3 image.py describe ...`). For a more reproducible invocation (and to exercise the package entry points), prefer the module form (python -m src.image_description.cli.<cli_module> ...).
+  - When the package is installed (pip install -e . or a real distribution), the package will provide console scripts named `image`, `post-builder`, and `blog-post-builder` which are equivalent to the module invocations.
+
 There are **three** main scripts:
 
 - `image.py` – scans images, calls the OpenAI API, and writes JSON sidecar files; can also embed metadata back into the image files via `exiftool`.
@@ -317,7 +344,7 @@ python3 blog_post_builder.py \
 Important detail (matches the current code):
 
 - The **output filename** always uses **today’s date**, not `--date`:
-  - `<out-root>/_posts/<TODAY>-<json_basename>.md`
+- `<out-root>/_posts/<TODAY>-<json_basename>.md`
 
 ---
 
