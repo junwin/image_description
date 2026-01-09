@@ -1,3 +1,7 @@
 venv/pyvenv.cfg
 venv
 DSC_1234.yaml
+.venv/lib64
+.venv/bin
+.venv/lib
+

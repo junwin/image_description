@@ -10,12 +10,15 @@
             "justMyCode": true
         },
         {
-            "name": "Python: Image (Linux)",
+            "name": "Python: Image Describe (Linux)",
             "type": "python",
             "request": "launch",
             "program": "${workspaceFolder}/image.py",
             "args": [
-                "/home/junwin/nucshare/2021/2021Jan/Output/web"
+                "describe",
+                "/home/junwin/nucshare/2025/Brisbane/Output/web",
+                "--preset",
+                "orwell_ways_of_seeing"
             ],
             "console": "integratedTerminal",
             "justMyCode": true,
@@ -24,11 +27,44 @@
             }
         },
         {
-            "name": "Python: Image (Windows)",
+            "name": "Python: Image Embed (Linux)",
             "type": "python",
             "request": "launch",
             "program": "${workspaceFolder}/image.py",
             "args": [
+                "embed",
+                "/home/junwin/nucshare/2025/Brisbane/Output/web"
+            ],
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "env": {
+                "CREDENTIAL_PATH": "/home/junwin/credential"
+            }
+        },
+        {
+            "name": "Python: Image Describe (Windows)",
+            "type": "python",
+            "request": "launch",
+            "program": "${workspaceFolder}/image.py",
+            "args": [
+                "describe",
+                "E:/photography/work/2024/2024Aug_wales/Output",
+                "--preset",
+                "orwell_ways_of_seeing"
+            ],
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "env": {
+                "CREDENTIAL_PATH": "C:/Users/junwin/credential"
+            }
+        },
+        {
+            "name": "Python: Image Embed (Windows)",
+            "type": "python",
+            "request": "launch",
+            "program": "${workspaceFolder}/image.py",
+            "args": [
+                "embed",
                 "E:/photography/work/2024/2024Aug_wales/Output"
             ],
             "console": "integratedTerminal",

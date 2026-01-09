@@ -1,11 +1,12 @@
 # Image Description Tools
 
-This project helps you generate rich, consistent metadata for your photographs using OpenAI vision models, and then export that metadata as JSON, YAML, or Markdown for use in editors, blogs, or archives.
+This project helps you generate rich, consistent metadata for your photographs using OpenAI vision models, and then export that metadata into formats you can reuse (JSON sidecars, Markdown/YAML exports, and Jekyll blog posts).
 
-There are two main scripts:
+There are **three** main scripts:
 
 - `image.py` – scans images, calls the OpenAI API, and writes JSON sidecar files; can also embed metadata back into the image files via `exiftool`.
-- `post_builder.py` – reads one of those JSON files and produces a clean YAML or Markdown file with just the metadata.
+- `post_builder.py` – reads one JSON sidecar and exports the metadata as **Markdown** or **YAML** (optionally including a “prompt for social post”).
+- `blog_post_builder.py` – reads one JSON sidecar and writes a **Jekyll** post into a GitHub Pages repo (`_posts/`), optionally copying the image into the repo under `/assets/...`.
 
 The design is:
 
@@ -70,15 +71,16 @@ The code will look for `oaicred.json` in `credential_path` and read `openai_api_
 
 You can also override the key via the `OPENAI_API_KEY` environment variable if you prefer.
 
-### 1.3 exiftool
+### 1.3 exiftool (required for IPTC read/write)
 
-To read and write IPTC metadata, the scripts use `exiftool`.
+`image.py` reads and writes **IPTC metadata** (title/description/keywords) by calling the command-line tool **ExifTool**.
 
 Install it and make sure it’s on your `PATH`:
 
 - **Ubuntu/Debian**:
 
   ```bash
+  sudo apt-get update
   sudo apt-get install exiftool
   ```
 
@@ -91,13 +93,16 @@ Install it and make sure it’s on your `PATH`:
 - **Windows**:
 
   - Download from https://exiftool.org/
-  - Add the `exiftool.exe` location to your `PATH`.
+  - Put `exiftool(-k).exe` somewhere stable (e.g. `C:\Tools\exiftool\exiftool.exe`).
+  - Add that folder to your `PATH`.
 
-Check it works:
+Verify it works:
 
 ```bash
 exiftool -ver
 ```
+
+> Note: If you only use `image.py describe` (JSON sidecars) you can get pretty far without ExifTool, but `image.py embed` requires it.
 
 ---
 
@@ -110,7 +115,20 @@ It has two subcommands:
 - `describe` – generate JSON metadata sidecars for images.
 - `embed` – write metadata from JSON back into the image files.
 
-### 2.1 Basic usage: describe a directory of images
+### 2.1 Command-line interface
+
+The general form is:
+
+```bash
+python3 image.py describe PATH [--preset PRESET]
+python3 image.py embed DIRECTORY
+```
+
+- `PATH` can be a single image file or a directory of images.
+- `DIRECTORY` must be a directory containing images and their JSON sidecars.
+- `PRESET` selects which prompt preset to use (see below).
+
+### 2.2 Basic usage: describe a directory of images
 
 From the project root:
 
@@ -147,7 +165,7 @@ The JSON structure includes:
 }
 ```
 
-### 2.2 Prompt presets
+### 2.3 Prompt presets
 
 `image.py` uses named prompt presets to control how the model describes the image. Two presets are currently defined:
 
@@ -161,9 +179,9 @@ python3 image.py describe /path/to/images --preset orwell_basic
 python3 image.py describe /path/to/images --preset orwell_ways_of_seeing
 ```
 
-If you omit `--preset`, a default is used (currently `orwell_ways_of_seeing`).
+If you omit `--preset`, the default is `orwell_ways_of_seeing`.
 
-### 2.3 Describe a single image
+### 2.4 Describe a single image
 
 ```bash
 python3 image.py describe /path/to/images/2A9A8326.jpg
@@ -171,7 +189,7 @@ python3 image.py describe /path/to/images/2A9A8326.jpg
 
 This will create `/path/to/images/2A9A8326.json`.
 
-### 2.4 Embed metadata back into images
+### 2.5 Embed metadata back into images
 
 Once you’re happy with the JSON sidecars, you can write the metadata back into the image files using `embed`:
 
@@ -187,13 +205,13 @@ For each image with a matching JSON file, the script will:
 
 This uses `exiftool` under the hood.
 
-> **Tip:** It’s a good idea to keep backups of your original images, or work on copies, when experimenting with metadata embedding.
+> Tip: keep backups of your original images (or work on copies) when experimenting with metadata embedding.
 
 ---
 
 ## 3. `post_builder.py` – export metadata as YAML or Markdown
 
-`post_builder.py` reads one of the JSON sidecar files and produces a clean YAML or Markdown file containing just the metadata.
+`post_builder.py` reads one of the JSON sidecar files and produces a clean YAML or Markdown file containing the metadata.
 
 This is useful for:
 
@@ -211,11 +229,7 @@ python3 post_builder.py \
   --format yaml
 ```
 
-This will create:
-
-```text
-/path/to/images/2A9A8326.yaml
-```
+This will print YAML to stdout (or you can use `--output` to write a file).
 
 The YAML includes fields like:
 
@@ -229,40 +243,23 @@ keywords:
   - landscape
   - snow
   - nature
-  - monochrome
-  - winter
-  - silos
-  - gray
-  - contrast
-  - industrial
-hashtags: "#landscape #snow #nature #monochrome #winter #silos #gray #contrast #industrial"
+hashtags: "#landscape #snow #nature"
 image: /path/to/images/2A9A8326.jpg   # if the script can guess the image path
+prompt_for_social_post: |
+  Act as a thoughtful artist and writer...
 ```
 
 ### 3.2 Markdown output
 
-To create a Markdown file next to the JSON:
+To create Markdown:
 
 ```bash
 python3 post_builder.py /path/to/images/2A9A8326.json
 ```
 
-This will create:
+This prints Markdown to stdout (or use `--output` to write a file).
 
-```text
-/path/to/images/2A9A8326.md
-```
-
-The Markdown includes sections for:
-
-- Title
-- Original notes (title + description)
-- Enhanced description
-- Description for the visually challenged
-- Keywords
-- Hashtags
-
-If the script can guess the image path (by replacing `.json` with `.jpg`/`.jpeg`/`.png`), it will also include a simple image reference at the top.
+If the script can guess the image path (by replacing `.json` with `.jpg`/`.jpeg`/`.png`), it will include a simple image reference near the top.
 
 ### 3.3 Explicit image path (optional)
 
@@ -275,26 +272,155 @@ python3 post_builder.py \
   --image-path /images/2021/2021Jan/2A9A8326.jpg
 ```
 
----
+You can also omit the social-post prompt:
 
-## 4. VS Code integration
-
-The project includes a `.vscode/launch.json` with helpful run configurations:
-
-- Run `image.py` on a Linux image directory.
-- Run `image.py` on a Windows image directory.
-- Run `post_builder.py` on the currently open JSON file to produce YAML or Markdown next to it.
-
-To use them:
-
-1. Open `~/src/repos/image_description` in VS Code.
-2. Open the Run and Debug panel.
-3. Choose the configuration you want (e.g. "Python: Image (Linux)" or "Python: Build post from JSON (YAML)").
-4. Start debugging.
+```bash
+python3 post_builder.py /path/to/images/2A9A8326.json --no-prompt
+```
 
 ---
 
-## 5. Typical workflow
+## 4. `blog_post_builder.py` – write a Jekyll post into a repo
+
+`blog_post_builder.py` takes a JSON sidecar and writes a Jekyll-compatible Markdown post into a GitHub Pages repo.
+
+It can also copy the image into the repo if the image path you use is under `/assets/...`.
+
+### 4.1 Command-line interface
+
+```bash
+python3 blog_post_builder.py JSON_PATH --out-root /path/to/jekyll/repo [options]
+```
+
+Options:
+
+- `--out-root` (required): root of the Jekyll/GitHub Pages repo. The post is written to `<out-root>/_posts/`.
+- `--date`: date used in the post front matter. Accepts `YYYY-MM-DD` or `YYYY-MM-DD HH:MM:SS -ZZZZ`.
+  - If omitted, it uses today’s date.
+  - If you pass only `YYYY-MM-DD`, the script writes `10:00:00 -0500` as the time/zone.
+- `--image`: web path used in front matter and body (example: `/assets/images/foo.jpg`).
+  - If omitted, it guesses `/assets/images/<filename>` if it finds an image next to the JSON.
+  - If it starts with `/assets/`, the script will copy the source image (next to the JSON, same basename) into `<out-root>/assets/...`.
+- `--categories`: optional list of categories.
+
+### 4.2 Example
+
+```bash
+python3 blog_post_builder.py \
+  /home/junwin/nucshare/2025/Brisbane/Output/web/R0004509.json \
+  --date 2025-12-24 \
+  --out-root /home/junwin/src/repos/junwin.github.io \
+  --image /assets/images/junwin/2025/R0004509.jpg \
+  --categories photography
+```
+
+Important detail (matches the current code):
+
+- The **output filename** always uses **today’s date**, not `--date`:
+  - `<out-root>/_posts/<TODAY>-<json_basename>.md`
+
+---
+
+## 5. VS Code integration
+
+The project includes a `.vscode/launch.json` with helpful run configurations.
+
+For `image.py` there are four presets:
+
+- **Python: Image Describe (Linux)**
+
+  ```jsonc
+  {
+    "name": "Python: Image Describe (Linux)",
+    "type": "python",
+    "request": "launch",
+    "program": "${workspaceFolder}/image.py",
+    "args": [
+      "describe",
+      "/home/junwin/nucshare/2025/Brisbane/Output/web",
+      "--preset",
+      "orwell_ways_of_seeing"
+    ],
+    "console": "integratedTerminal",
+    "justMyCode": true,
+    "env": {
+      "CREDENTIAL_PATH": "/home/junwin/credential"
+    }
+  }
+  ```
+
+- **Python: Image Embed (Linux)**
+
+  ```jsonc
+  {
+    "name": "Python: Image Embed (Linux)",
+    "type": "python",
+    "request": "launch",
+    "program": "${workspaceFolder}/image.py",
+    "args": [
+      "embed",
+      "/home/junwin/nucshare/2025/Brisbane/Output/web"
+    ],
+    "console": "integratedTerminal",
+    "justMyCode": true,
+    "env": {
+      "CREDENTIAL_PATH": "/home/junwin/credential"
+    }
+  }
+  ```
+
+- **Python: Image Describe (Windows)**
+
+  ```jsonc
+  {
+    "name": "Python: Image Describe (Windows)",
+    "type": "python",
+    "request": "launch",
+    "program": "${workspaceFolder}/image.py",
+    "args": [
+      "describe",
+      "E:/photography/work/2024/2024Aug_wales/Output",
+      "--preset",
+      "orwell_ways_of_seeing"
+    ],
+    "console": "integratedTerminal",
+    "justMyCode": true,
+    "env": {
+      "CREDENTIAL_PATH": "C:/Users/junwin/credential"
+    }
+  }
+  ```
+
+- **Python: Image Embed (Windows)**
+
+  ```jsonc
+  {
+    "name": "Python: Image Embed (Windows)",
+    "type": "python",
+    "request": "launch",
+    "program": "${workspaceFolder}/image.py",
+    "args": [
+      "embed",
+      "E:/photography/work/2024/2024Aug_wales/Output"
+    ],
+    "console": "integratedTerminal",
+    "justMyCode": true,
+    "env": {
+      "CREDENTIAL_PATH": "C:/Users/junwin/credential"
+    }
+  }
+  ```
+
+You can edit the paths in `"args"` to point at whatever directory you are currently working on.
+
+There are also two presets for `post_builder.py` that operate on the currently open file:
+
+- **Python: Build post from JSON (YAML)**
+- **Python: Build post from JSON (Markdown)**
+
+---
+
+## 6. Typical workflow
 
 A common end-to-end workflow might look like this:
 
@@ -327,13 +453,21 @@ A common end-to-end workflow might look like this:
    python3 image.py embed /home/junwin/nucshare/2021/2021Jan/Output/web
    ```
 
-6. **(Later) Tailor prompts for social posts or blogs**
-   - Use the JSON/YAML/Markdown as input to a separate script or tool that applies your preferred writing prompt (e.g. for Mastodon, Tumblr, Bluesky).
+6. **Build a Jekyll blog post**
+
+   ```bash
+python3 blog_post_builder.py \
+     /home/junwin/nucshare/2025/Brisbane/Output/web/R0004509.json \
+     --date 2025-12-24 \
+     --out-root /home/junwin/src/repos/junwin.github.io \
+     --image /assets/images/junwin/2025/R0004509.jpg \
+     --categories photography
+   ```
 
 ---
 
-## 6. Notes and future ideas
+## 7. Notes and future ideas
 
 - The current prompts are designed to be general and reusable. You can add new presets in `image.py` or separate scripts for specific platforms.
-- `post_builder.py` intentionally outputs **only metadata**, not prompts, so you can keep your archive clean and apply prompts on demand.
-- If you want to support more image formats or metadata fields, both scripts are structured to make that relatively easy.
+- `post_builder.py` intentionally exports **metadata + optional prompt**, so you can keep your archive clean and apply prompts on demand.
+- `blog_post_builder.py` is intentionally simple: it turns one JSON sidecar into one Jekyll post and (optionally) copies the image into your site repo.
