@@ -1,103 +1,109 @@
 {
-    "version": "0.2.0",
-    "configurations": [
-        {
-            "name": "Python: Current File",
-            "type": "python",
-            "request": "launch",
-            "program": "${file}",
-            "console": "integratedTerminal",
-            "justMyCode": true
-        },
-        {
-            "name": "Python: Image Describe (Linux)",
-            "type": "python",
-            "request": "launch",
-            "program": "${workspaceFolder}/image.py",
-            "args": [
-                "describe",
-                "/home/junwin/nucshare/2025/Brisbane/Output/web",
-                "--preset",
-                "orwell_ways_of_seeing"
-            ],
-            "console": "integratedTerminal",
-            "justMyCode": true,
-            "env": {
-                "CREDENTIAL_PATH": "/home/junwin/credential"
-            }
-        },
-        {
-            "name": "Python: Image Embed (Linux)",
-            "type": "python",
-            "request": "launch",
-            "program": "${workspaceFolder}/image.py",
-            "args": [
-                "embed",
-                "/home/junwin/nucshare/2025/Brisbane/Output/web"
-            ],
-            "console": "integratedTerminal",
-            "justMyCode": true,
-            "env": {
-                "CREDENTIAL_PATH": "/home/junwin/credential"
-            }
-        },
-        {
-            "name": "Python: Image Describe (Windows)",
-            "type": "python",
-            "request": "launch",
-            "program": "${workspaceFolder}/image.py",
-            "args": [
-                "describe",
-                "E:/photography/work/2024/2024Aug_wales/Output",
-                "--preset",
-                "orwell_ways_of_seeing"
-            ],
-            "console": "integratedTerminal",
-            "justMyCode": true,
-            "env": {
-                "CREDENTIAL_PATH": "C:/Users/junwin/credential"
-            }
-        },
-        {
-            "name": "Python: Image Embed (Windows)",
-            "type": "python",
-            "request": "launch",
-            "program": "${workspaceFolder}/image.py",
-            "args": [
-                "embed",
-                "E:/photography/work/2024/2024Aug_wales/Output"
-            ],
-            "console": "integratedTerminal",
-            "justMyCode": true,
-            "env": {
-                "CREDENTIAL_PATH": "C:/Users/junwin/credential"
-            }
-        },
-        {
-            "name": "Python: Build post from JSON (YAML)",
-            "type": "python",
-            "request": "launch",
-            "program": "${workspaceFolder}/post_builder.py",
-            "args": [
-                "${file}",
-                "--format",
-                "yaml"
-            ],
-            "console": "integratedTerminal",
-            "justMyCode": true
-        },
-        {
-            "name": "Python: Build post from JSON (Markdown)",
-            "type": "python",
-            "request": "launch",
-            "program": "${workspaceFolder}/post_builder.py",
-            "args": [
-                "${file}",
-                "--format",
-                "md"
-            ],
-            "console": "integratedTerminal",
-            "justMyCode": true
-        }
-    ]
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Python: Current File",
+      "type": "python",
+      "request": "launch",
+      "program": "${file}",
+      "console": "integratedTerminal",
+      "justMyCode": true
+    },
+    {
+      "name": "Python: Image Describe (Linux) [module]",
+      "type": "python",
+      "request": "launch",
+      "module": "src.image_description.cli.image_cli",
+      "args": [
+        "describe",
+        "/home/junwin/nucshare/2025/Brisbane/Output/web",
+        "--preset",
+        "orwell_ways_of_seeing"
+      ],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "justMyCode": true,
+      "env": {
+        "CREDENTIAL_PATH": "/home/junwin/credential"
+      }
+    },
+    {
+      "name": "Python: Image Embed (Linux) [module]",
+      "type": "python",
+      "request": "launch",
+      "module": "src.image_description.cli.image_cli",
+      "args": [
+        "embed",
+        "/home/junwin/nucshare/2025/Brisbane/Output/web"
+      ],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "justMyCode": true,
+      "env": {
+        "CREDENTIAL_PATH": "/home/junwin/credential"
+      }
+    },
+    {
+      "name": "Python: Image Describe (Windows) [module]",
+      "type": "python",
+      "request": "launch",
+      "module": "src.image_description.cli.image_cli",
+      "args": [
+        "describe",
+        "E:/photography/work/2024/2024Aug_wales/Output",
+        "--preset",
+        "orwell_ways_of_seeing"
+      ],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "justMyCode": true,
+      "env": {
+        "CREDENTIAL_PATH": "C:/Users/junwin/credential"
+      }
+    },
+    {
+      "name": "Python: Image Embed (Windows) [module]",
+      "type": "python",
+      "request": "launch",
+      "module": "src.image_description.cli.image_cli",
+      "args": [
+        "embed",
+        "E:/photography/work/2024/2024Aug_wales/Output"
+      ],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "justMyCode": true,
+      "env": {
+        "CREDENTIAL_PATH": "C:/Users/junwin/credential"
+      }
+    },
+    {
+      "name": "Python: Build post from JSON (YAML) [module]",
+      "type": "python",
+      "request": "launch",
+      "module": "src.image_description.cli.post_builder_cli",
+      "args": [
+        "${file}",
+        "--format",
+        "yaml"
+      ],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "justMyCode": true
+    },
+    {
+      "name": "Python: Build post from JSON (Markdown) [module]",
+      "type": "python",
+      "request": "launch",
+      "module": "src.image_description.cli.post_builder_cli",
+      "args": [
+        "${file}",
+        "--format",
+        "md"
+      ],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "justMyCode": true
+    }
+  ]
 }
