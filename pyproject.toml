@@ -1,0 +1,42 @@
+# pyproject for image_description package — minimal PEP 621 metadata
+# Adds console_scripts entry points so ``pip install -e .`` or modern build tools
+# will expose the CLI mains under package-managed entry points.
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "image_description"
+version = "0.0.0"
+description = "Image description helper tools"
+readme = "README.md"
+requires-python = ">=3.8"
+
+# Console scripts exposed for the CLIs implemented under image_description.cli
+[project.entry-points."console_scripts"]
+# Main CLI for the legacy blog post builder
+blog-post-builder = "image_description.cli.blog_post_builder_cli:main"
+# Keep parity with existing tools so users can install these as scripts as well
+image = "image_description.cli.image_cli:main"
+post-builder = "image_description.cli.post_builder_cli:main"
+
+# Manual verification steps (no automated tests provided here):
+# 1. From the package root (src/repos/image_description) create a venv and install in editable mode:
+#    python -m venv .venv && source .venv/bin/activate
+#    pip install -e .
+# 2. Verify entry points are available:
+#    which blog-post-builder
+#    blog-post-builder --help
+#    which image
+#    image --help
+#    which post-builder
+#    post-builder --help
+# 3. Ensure legacy scripts (if still present) call into the package CLIs; for example:
+#    python blog_post_builder.py --help
+#    python scripts/post_builder.py --help
+
+# If you prefer the newer PEP 621 [project.scripts] mapping instead, it can be used as:
+# [project.scripts]
+# blog-post-builder = "image_description.cli.blog_post_builder_cli:main"
+# but setuptools supports [project.entry-points."console_scripts"] reliably.
