@@ -31,15 +31,40 @@ def _encode_image_to_base64(path: str) -> str:
 
 
 def _load_openai_client() -> OpenAI:
+    """Create an OpenAI client.
+
+    Precedence:
+    1) OPENAI_API_KEY environment variable
+    2) credential file (oaicred.json) if present
+
+    Rationale:
+    - Env vars are the most common OSS pattern and work well with CI, containers,
+      and secret managers.
+    - The credential file path is kept for backwards compatibility.
+    """
+
+    # Preferred: environment variable
+    openai_api_key = os.getenv("OPENAI_API_KEY")
+    if openai_api_key:
+        return OpenAI(api_key=openai_api_key)
+
+    # Back-compat: credential file
     _config = ConfigManager("config.json")
     credential_path = os.getenv(
         "CREDENTIAL_PATH", _config.get("credential_path", os.path.expanduser("~/credential"))
     )
 
-    with open(os.path.join(credential_path, "oaicred.json"), "r", encoding="utf-8") as f:
-        config_data = json.load(f)
+    cred_file = os.path.join(credential_path, "oaicred.json")
+    if os.path.exists(cred_file):
+        with open(cred_file, "r", encoding="utf-8") as f:
+            config_data = json.load(f)
+        openai_api_key = config_data.get("openai_api_key")
 
-    openai_api_key = os.getenv("OPENAI_API_KEY", config_data.get("openai_api_key"))
+    if not openai_api_key:
+        raise RuntimeError(
+            "OpenAI API key not found. Set OPENAI_API_KEY or provide oaicred.json in CREDENTIAL_PATH."
+        )
+
     return OpenAI(api_key=openai_api_key)
 
 

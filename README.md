@@ -2,6 +2,30 @@
 
 This project helps you generate rich, consistent metadata for your photographs using OpenAI vision models, and then export that metadata into formats you can reuse (JSON sidecars, Markdown/YAML exports, and Jekyll blog posts).
 
+## What these tools do (overview)
+
+This repo is a small pipeline:
+
+1. **Describe images** with an OpenAI vision model and save the results as **JSON sidecar files** next to your images.
+2. Optionally **embed** the chosen title/description/keywords back into the image file as **IPTC metadata** (via ExifTool).
+3. **Export** the sidecar metadata into formats you can reuse:
+   - Markdown/YAML snippets (for notes, captions, etc.)
+   - A ready-to-commit Jekyll post in a GitHub Pages repo
+
+The three main CLIs are:
+
+- **`image_cli`** – scans images, calls the OpenAI API, and writes JSON sidecar files; can also embed metadata back into the image files via `exiftool`.
+- **`post_builder_cli`** – reads one JSON sidecar and exports the metadata as **Markdown** or **YAML** (optionally including a “prompt for social post”).
+- **`blog_post_builder_cli`** – reads one JSON sidecar and writes a **Jekyll** post into a GitHub Pages repo (`_posts/`), optionally copying the image into the repo under `/assets/...`.
+
+What it does *not* try to be:
+
+- A photo library manager
+- A publishing tool (it writes files; you commit/publish)
+- A general EXIF editor (it focuses on a small set of IPTC fields)
+
+---
+
 ## CLI usage (recommended)
 
 To see the available options for the CLIs use the module invocation (recommended when running from the repo):
@@ -9,6 +33,18 @@ To see the available options for the CLIs use the module invocation (recommended
 - `python -m src.image_description.cli.image_cli --help`
 - `python -m src.image_description.cli.post_builder_cli --help`
 - `python -m src.image_description.cli.blog_post_builder_cli --help`
+
+### Why `python -m src.image_description...`?
+
+This repo uses a `src/` layout. When you run the tools directly from the repo in a virtualenv (without doing an editable install), Python will not automatically find the `image_description` package unless you include `src.` in the module path.
+
+So, from the repo root, this works reliably:
+
+- `python -m src.image_description.cli.image_cli ...`
+
+Whereas this may fail unless you have installed the package (e.g. `pip install -e .`) or otherwise adjusted `PYTHONPATH`:
+
+- `python -m image_description.cli.image_cli ...`
 
 Target-state console scripts (when the package is installed) would be:
 
@@ -19,12 +55,6 @@ Target-state console scripts (when the package is installed) would be:
 These console scripts map to the same CLI entry points as the module invocations above.
 
 ---
-
-There are **three** main tools:
-
-- `image_cli` – scans images, calls the OpenAI API, and writes JSON sidecar files; can also embed metadata back into the image files via `exiftool`.
-- `post_builder_cli` – reads one JSON sidecar and exports the metadata as **Markdown** or **YAML** (optionally including a “prompt for social post”).
-- `blog_post_builder_cli` – reads one JSON sidecar and writes a **Jekyll** post into a GitHub Pages repo (`_posts/`), optionally copying the image into the repo under `/assets/...`.
 
 The design is:
 

@@ -29,7 +29,36 @@ def merge_keywords(existing: List[str], new: List[str]) -> List[str]:
 
 
 def build_hashtags(keywords: List[str]) -> str:
-    tags = ["#" + kw.replace(" ", "").lower() for kw in keywords]
+    """Build a space-separated hashtag string from keywords.
+
+    Notes:
+    - Keywords sometimes come back as a single comma-separated string
+      (e.g. "photography, photo, Nature"). We split those into individual tags.
+    - We normalize by lowercasing and removing spaces.
+    - We de-duplicate case-insensitively.
+    """
+
+    seen = set()
+    tags: List[str] = []
+
+    for kw in keywords:
+        if kw is None:
+            continue
+
+        # Split comma-separated keyword strings into individual tokens
+        parts = [p.strip() for p in str(kw).split(",")]
+        for part in parts:
+            if not part:
+                continue
+
+            normalized = part.replace(" ", "").lower()
+            if not normalized:
+                continue
+
+            if normalized not in seen:
+                seen.add(normalized)
+                tags.append("#" + normalized)
+
     return " ".join(tags)
 
 

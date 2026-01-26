@@ -3,26 +3,49 @@ import os
 from datetime import date, datetime
 from typing import List, Optional
 
-from ..post.blog_post_builder import build_post_from_json, guess_image_web_path
+from ..post.blog_post_builder import (
+    build_post_from_json_paths,
+    collect_json_paths,
+)
 
 
 def main(argv: Optional[List[str]] = None) -> None:
-    """CLI entrypoint for building a Jekyll blog post from an image sidecar JSON.
+    """CLI entrypoint for building a Jekyll blog post from one or more image sidecar JSON files.
 
-    This module is intentionally thin: it parses command-line arguments and
-    delegates the work to image_description.post.blog_post_builder.build_post_from_json().
+    This CLI supports a single JSON (backward compatible) or multiple JSONs /
+    directories containing JSON files. When multiple sidecars are provided they
+    are combined into a single post: the title from the first sidecar is used
+    as the post title, a single H1 is written at the top of the body, and each
+    sidecar is rendered under its own H2 section. Internal subsections use
+    H3 headings.
+
+    Note on images:
+    - For a single JSON you may pass --image to explicitly set the web path
+      used in the front matter and body (e.g. /assets/images/foo.jpg). If
+      omitted the tool will look for an image file next to the JSON and copy
+      it into the site's /assets/images/ directory.
+    - When providing multiple JSONs, --image is invalid. Each sidecar will use
+      the image found next to its JSON file and the CLI will copy those images
+      into the target site's assets directory.
 
     Parameters:
-    - argv: optional list of arguments for testing; if None, argparse reads
-      from sys.argv.
+    - argv: optional list of arguments for testing; if None, argparse reads from sys.argv.
     """
     parser = argparse.ArgumentParser(
         description=(
-            "Build a Jekyll blog post Markdown file from an image metadata JSON "
-            "and write it into a GitHub Pages repo (_posts), also copying the image."
+            "Build a Jekyll blog post Markdown file from one or more image metadata "
+            "JSON sidecars and write it into a GitHub Pages repo (_posts), also "
+            "copying image files into the site's /assets/images/ directory."
         )
     )
-    parser.add_argument("json_path", help="Path to the metadata JSON file.")
+    parser.add_argument(
+        "json_path",
+        nargs="+",
+        help=(
+            "One or more metadata JSON files or directories containing JSON files. "
+            "Directories are scanned non-recursively for .json files."
+        ),
+    )
     parser.add_argument(
         "--date",
         help=(
@@ -42,7 +65,9 @@ def main(argv: Optional[List[str]] = None) -> None:
         "--image",
         help=(
             "Web path to the image for front matter and body (e.g. /assets/images/foo.jpg). "
-            "If omitted, a simple guess is made based on the JSON filename."
+            "Valid only when providing a single JSON sidecar; when providing multiple "
+            "sidecars this option is disallowed and the tool will use images found "
+            "next to each JSON."
         ),
     )
     parser.add_argument(
@@ -54,7 +79,9 @@ def main(argv: Optional[List[str]] = None) -> None:
 
     args = parser.parse_args(argv)
 
-    json_path = os.path.abspath(args.json_path)
+    # Resolve json paths (support files and directories)
+    json_inputs = args.json_path or []
+    json_paths = collect_json_paths(json_inputs)
 
     # Determine date: use provided or today's date
     if args.date:
@@ -73,9 +100,11 @@ def main(argv: Optional[List[str]] = None) -> None:
 
     out_root = os.path.abspath(args.out_root)
 
-    image_web_path = guess_image_web_path(json_path, args.image)
+    # If multiple JSONs provided, --image is invalid
+    if len(json_paths) > 1 and args.image:
+        raise SystemExit("--image may not be used when providing multiple JSON sidecars")
 
-    out_path = build_post_from_json(json_path, out_root, date_str, image_web_path, args.categories)
+    out_path = build_post_from_json_paths(json_paths, out_root, date_str, args.image, args.categories)
 
     # Mirror previous behavior: print the path to the written file
     print(f"Wrote blog post to {out_path}")
@@ -83,17 +112,3 @@ def main(argv: Optional[List[str]] = None) -> None:
 
 if __name__ == "__main__":
     main()
-
-
-# Manual verification / minimal tests
-# - Unit testing: call build_post_from_json() from tests with a small Sidecar JSON
-#   fixture and a temporary out_root, then assert the file exists and contains
-#   expected front matter and body sections.
-# - CLI smoke test (manual):
-#     python -m image_description.cli.blog_post_builder_cli path/to/meta.json --out-root /tmp/site
-#   should print the output path and create /tmp/site/_posts/YYYY-MM-DD-<slug>.md
-# - Packaging note: to expose a console script entrypoint add to your packaging
-#   configuration (setup.cfg/pyproject.toml):
-#       [options.entry_points]
-#       console_scripts =
-#           blog-post-builder = image_description.cli.blog_post_builder_cli:main

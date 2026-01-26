@@ -26,6 +26,12 @@ def first_sentence(text: str) -> str:
 
 
 def guess_image_web_path(json_path: str, explicit_image: Optional[str]) -> Optional[str]:
+    """Guess a web-accessible image path for a sidecar JSON.
+
+    If explicit_image is provided, it is returned unchanged. Otherwise, this
+    looks for an image file next to the JSON sharing the same basename and,
+    if found, returns a path under /assets/images/.
+    """
     if explicit_image:
         return explicit_image
 
@@ -39,6 +45,11 @@ def guess_image_web_path(json_path: str, explicit_image: Optional[str]) -> Optio
 
 
 def copy_image_to_repo(json_path: str, out_root: str, image_web_path: Optional[str]) -> None:
+    """Copy the source image (next to json_path) into the out_root at
+    image_web_path (must begin with /assets/...). If no source image is
+    found or image_web_path is not under /assets/, the function returns and
+    prints a warning.
+    """
     if not image_web_path:
         return
     if not image_web_path.startswith("/assets/"):
@@ -74,6 +85,13 @@ def build_front_matter(
     image_web_path: Optional[str],
     categories: List[str],
 ) -> str:
+    """Build the Jekyll front matter YAML block from metadata.
+
+    - meta: dictionary produced by Sidecar.to_dict()
+    - date_str: date in YYYY-MM-DD or a full timestamp
+    - image_web_path: optional web path to the image (e.g. /assets/images/foo.jpg)
+    - categories: list of categories
+    """
     title = meta.get("title") or meta.get("original_title") or "Untitled"
     keywords = meta.get("keywords", [])
     if isinstance(keywords, list):
@@ -122,7 +140,12 @@ def build_front_matter(
     return "\n".join(lines)
 
 
-def build_body(meta: Dict[str, Any], image_web_path: Optional[str]) -> str:
+def build_body_single(meta: Dict[str, Any], image_web_path: Optional[str]) -> str:
+    """Build the Markdown body for a single sidecar.
+
+    Uses H1 once for the title and H2 for the internal sections (original,
+    enhanced, keywords, hashtags) to preserve backward compatibility.
+    """
     title = meta.get("title") or meta.get("original_title") or "Untitled"
     original_description = meta.get("original_description", "")
     enhanced_description = meta.get("enhanced_description", "")
@@ -132,6 +155,7 @@ def build_body(meta: Dict[str, Any], image_web_path: Optional[str]) -> str:
 
     lines: List[str] = []
 
+    # H1 once for the post title
     lines.append(f"# {title}")
     lines.append("")
 
@@ -171,35 +195,145 @@ def build_body(meta: Dict[str, Any], image_web_path: Optional[str]) -> str:
     return "\n".join(lines).rstrip() + "\n"
 
 
-def build_post_from_json(
-    json_path: str,
+def build_body_multiple(metas: List[Dict[str, Any]], image_web_paths: List[Optional[str]]) -> str:
+    """Build the Markdown body for multiple sidecars combined into one post.
+
+    - Uses a single H1 (title from the first sidecar) at the top, and an H2
+      heading for each sidecar section. Internal subsections use H3 headings.
+    """
+    if not metas:
+        return ""
+
+    top_title = metas[0].get("title") or metas[0].get("original_title") or "Untitled"
+    lines: List[str] = []
+
+    # H1 once for the combined post
+    lines.append(f"# {top_title}")
+    lines.append("")
+
+    for idx, meta in enumerate(metas):
+        # Section heading per sidecar
+        section_title = meta.get("title") or meta.get("original_title") or os.path.splitext(os.path.basename(meta.get("__source", "")))[0]
+        if not section_title:
+            section_title = f"Image {idx + 1}"
+        lines.append(f"## {section_title}")
+        lines.append("")
+
+        image_web_path = image_web_paths[idx] if idx < len(image_web_paths) else None
+        if image_web_path:
+            lines.append(f"![{section_title}]({image_web_path})")
+            lines.append("")
+
+        original_description = meta.get("original_description", "")
+        enhanced_description = meta.get("enhanced_description", "")
+        visually_challenged_description = meta.get("visually_challenged_description", "")
+        keywords = meta.get("keywords", [])
+        hashtags = meta.get("hashtags", "")
+
+        if original_description:
+            lines.append("### Original notes")
+            lines.append(original_description)
+            lines.append("")
+
+        if enhanced_description:
+            lines.append("### Enhanced description")
+            lines.append(enhanced_description)
+            lines.append("")
+
+        if visually_challenged_description:
+            lines.append("### Description for the visually challenged")
+            lines.append(visually_challenged_description)
+            lines.append("")
+
+        if keywords:
+            if isinstance(keywords, list):
+                kw_str = ", ".join(str(k) for k in keywords)
+            else:
+                kw_str = str(keywords)
+            lines.append("### Keywords")
+            lines.append(kw_str)
+            lines.append("")
+
+        if hashtags:
+            lines.append("### Hashtags")
+            lines.append(str(hashtags))
+            lines.append("")
+
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def build_post_from_json_paths(
+    json_paths: List[str],
     out_root: str,
     date_str: str,
-    image_web_path: Optional[str],
+    explicit_image: Optional[str],
     categories: List[str],
 ) -> str:
-    """Build a Jekyll blog post Markdown file from an image metadata JSON file.
+    """Build a Jekyll blog post Markdown file from one or more image metadata JSON files.
 
-    This is the library-level function: it performs the core work and does not
-    parse command-line arguments. It returns the path to the written Markdown
-    file.
+    Behavior:
+    - If json_paths contains a single file, this function preserves previous
+      behavior (single-sidecar post).
+    - If multiple files are provided, they are combined into one post: the title
+      from the first sidecar is used as the post title, a single H1 is written
+      at the top of the body, and each sidecar is rendered under its own H2
+      section. Images next to each JSON are copied into out_root/assets and
+      referenced under their respective sections.
+
+    Returns the path to the written Markdown file.
     """
-    json_path = os.path.abspath(json_path)
+    json_paths = [os.path.abspath(p) for p in json_paths]
     out_root = os.path.abspath(out_root)
 
-    sidecar = Sidecar.load(json_path)
-    meta = sidecar.to_dict()
+    # Load sidecars
+    sidecars: List[Sidecar] = []
+    metas: List[Dict[str, Any]] = []
+    image_web_paths: List[Optional[str]] = []
+    for p in json_paths:
+        side = Sidecar.load(p)
+        d = side.to_dict()
+        # include source path so we can get basename when needed
+        d["__source"] = p
+        sidecars.append(side)
+        metas.append(d)
 
-    image_web_path = guess_image_web_path(json_path, image_web_path)
+    # If single sidecar, keep compatibility and allow explicit_image override
+    if len(metas) == 1:
+        json_path = json_paths[0]
+        meta = metas[0]
 
-    copy_image_to_repo(json_path, out_root, image_web_path)
+        image_web_path = guess_image_web_path(json_path, explicit_image)
+        image_web_paths = [image_web_path]
 
-    front_matter = build_front_matter(meta, date_str, image_web_path, categories)
-    body = build_body(meta, image_web_path)
+        # Copy image if available
+        copy_image_to_repo(json_path, out_root, image_web_path)
 
-    base_name = os.path.splitext(os.path.basename(json_path))[0]
-    slug = base_name or "post"
+        front_matter = build_front_matter(meta, date_str, image_web_path, categories)
+        body = build_body_single(meta, image_web_path)
 
+        base_name = os.path.splitext(os.path.basename(json_path))[0]
+        slug = base_name or "post"
+
+    else:
+        # Multiple sidecars: explicit_image is not allowed
+        if explicit_image:
+            raise SystemExit("--image may not be used when providing multiple JSON sidecars")
+
+        # For each sidecar, guess image and copy
+        for p in json_paths:
+            img = guess_image_web_path(p, None)
+            image_web_paths.append(img)
+            copy_image_to_repo(p, out_root, img)
+
+        # Front matter uses first meta for title/excerpt/tags. Use first image if any
+        front_image = image_web_paths[0] if image_web_paths else None
+        front_matter = build_front_matter(metas[0], date_str, front_image, categories)
+        body = build_body_multiple(metas, image_web_paths)
+
+        base_name = os.path.splitext(os.path.basename(json_paths[0]))[0]
+        slug = base_name or "post"
+
+    # Write output
     posts_dir = os.path.join(out_root, "_posts")
     os.makedirs(posts_dir, exist_ok=True)
 
@@ -214,23 +348,64 @@ def build_post_from_json(
     return out_path
 
 
+def collect_json_paths(inputs: List[str]) -> List[str]:
+    """Resolve CLI inputs (files or directories) into a sorted list of JSON file paths.
+
+    - If a path is a directory, all files ending in .json in that directory are
+      included (non-recursive)
+    - If a path is a file, it is included.
+    - Paths are returned in a deterministic sorted order.
+    """
+    found: List[str] = []
+    for p in inputs:
+        p = os.path.abspath(p)
+        if os.path.isdir(p):
+            for name in sorted(os.listdir(p)):
+                if name.lower().endswith(".json"):
+                    found.append(os.path.join(p, name))
+        elif os.path.isfile(p):
+            found.append(p)
+        else:
+            raise SystemExit(f"Path not found: {p}")
+
+    # Remove duplicates while preserving order
+    seen = set()
+    out = []
+    for p in found:
+        if p not in seen:
+            seen.add(p)
+            out.append(p)
+    if not out:
+        raise SystemExit("No JSON sidecar files found in the provided paths")
+    return out
+
+
 def main(argv: Optional[List[str]] = None) -> None:
-    """Argparse-based CLI entry point for building blog posts.
+    """Argparse-based CLI entry point for building blog posts from one or more
+    image metadata JSON sidecar files.
 
-    This CLI is intentionally thin: it parses arguments and calls the
-    library-level build_post_from_json() above.
+    Usage:
+      python -m image_description.post.blog_post_builder <json-or-dir> [<json-or-dir> ...] \
+          --out-root /path/to/site [--date YYYY-MM-DD] [--image /assets/images/foo.jpg] [--categories cat1 cat2]
 
-    Parameters:
-    - argv: optional list of arguments (for testing). If None, argparse reads
-      from sys.argv.
+    Notes:
+    - You may provide one or more JSON files or directories containing JSON files.
+    - When providing multiple JSON sidecars they are combined into a single
+      post. In that case --image is invalid (use per-sidecar images next to
+      each JSON instead).
     """
     parser = argparse.ArgumentParser(
         description=(
-            "Build a Jekyll blog post Markdown file from an image metadata JSON "
-            "and write it into a GitHub Pages repo (_posts), also copying the image."
+            "Build a Jekyll blog post Markdown file from one or more image metadata "
+            "JSON sidecars and write it into a GitHub Pages repo (_posts), also "
+            "copying image files into the site's /assets/images/ directory."
         )
     )
-    parser.add_argument("json_path", help="Path to the metadata JSON file.")
+    parser.add_argument(
+        "json_path",
+        nargs="+",
+        help="One or more metadata JSON files or directories containing JSON files.",
+    )
     parser.add_argument(
         "--date",
         help=(
@@ -250,7 +425,8 @@ def main(argv: Optional[List[str]] = None) -> None:
         "--image",
         help=(
             "Web path to the image for front matter and body (e.g. /assets/images/foo.jpg). "
-            "If omitted, a simple guess is made based on the JSON filename."
+            "When providing a single JSON this overrides the image guess. "
+            "When providing multiple JSONs this option is invalid."
         ),
     )
     parser.add_argument(
@@ -262,7 +438,9 @@ def main(argv: Optional[List[str]] = None) -> None:
 
     args = parser.parse_args(argv)
 
-    json_path = os.path.abspath(args.json_path)
+    # Resolve json paths (support directories and multiple files)
+    json_inputs = args.json_path or []
+    json_paths = collect_json_paths(json_inputs)
 
     # Determine date: use provided or today's date
     if args.date:
@@ -281,9 +459,11 @@ def main(argv: Optional[List[str]] = None) -> None:
 
     out_root = os.path.abspath(args.out_root)
 
-    image_web_path = guess_image_web_path(json_path, args.image)
+    # If multiple JSONs provided, --image is invalid
+    if len(json_paths) > 1 and args.image:
+        raise SystemExit("--image may not be used when providing multiple JSON sidecars")
 
-    out_path = build_post_from_json(json_path, out_root, date_str, image_web_path, args.categories)
+    out_path = build_post_from_json_paths(json_paths, out_root, date_str, args.image, args.categories)
 
     # Mirror previous behavior: print the path to the written file
     print(f"Wrote blog post to {out_path}")
@@ -291,16 +471,3 @@ def main(argv: Optional[List[str]] = None) -> None:
 
 if __name__ == "__main__":
     main()
-
-
-# Manual verification / minimal tests
-# - Unit testing: call build_post_from_json() with a small Sidecar JSON file and a
-#   temporary out_root, then assert the file exists and contains expected front
-#   matter and body sections.
-# - CLI smoke test (manual):
-#     python -m image_description.post.blog_post_builder path/to/meta.json --out-root /tmp/site
-#   should print the output path and create /tmp/site/_posts/YYYY-MM-DD-<slug>.md
-# - Packaging note: to expose a console script entrypoint use:
-#     blog-post-builder = image_description.post.blog_post_builder:main
-#   or if you prefer a dedicated CLI module, add image_description/cli/blog_post_builder_cli.py
-#   and point the entrypoint at image_description.cli.blog_post_builder_cli:main
