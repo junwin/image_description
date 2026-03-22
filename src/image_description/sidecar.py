@@ -20,6 +20,7 @@ class Sidecar:
     enhanced_description: str = ""
     keywords: List[str] = field(default_factory=list)
     hashtags: str = ""
+    social_caption: str = ""
 
     extra: Dict[str, Any] = field(default_factory=dict)
 
@@ -33,6 +34,7 @@ class Sidecar:
             "enhanced_description",
             "keywords",
             "hashtags",
+            "social_caption",
         }
 
         keywords = data.get("keywords", [])
@@ -52,6 +54,7 @@ class Sidecar:
             enhanced_description=str(data.get("enhanced_description", "") or ""),
             keywords=keywords,
             hashtags=str(data.get("hashtags", "") or ""),
+            social_caption=str(data.get("social_caption", "") or ""),
             extra=extra,
         )
 
@@ -64,6 +67,7 @@ class Sidecar:
             "enhanced_description": self.enhanced_description,
             "keywords": list(self.keywords),
             "hashtags": self.hashtags,
+            "social_caption": self.social_caption,
         }
         data.update(self.extra)
         return data

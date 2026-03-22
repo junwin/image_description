@@ -62,7 +62,17 @@ def build_hashtags(keywords: List[str]) -> str:
     return " ".join(tags)
 
 
-def process_image(image_path: str, preset: str) -> None:
+def process_image(image_path: str, preset: str, overwrite: bool = False) -> None:
+    """Process a single image and write a JSON sidecar.
+
+    If a sidecar already exists and overwrite is False, the image will be skipped
+    early (before any OpenAI calls) to avoid unnecessary network usage.
+
+    Args:
+        image_path: Path to the image file.
+        preset: Prompt preset name to use when calling the OpenAI client.
+        overwrite: If True, existing sidecar files will be overwritten. Default False.
+    """
     if not is_image_file(image_path):
         print(f"Skipping non-image file: {image_path}")
         return
@@ -74,11 +84,16 @@ def process_image(image_path: str, preset: str) -> None:
         )
         return
 
+    json_file_path = sidecar_path_for_image(image_path)
+    if os.path.exists(json_file_path) and not overwrite:
+        print(f"Skipping {image_path}: sidecar {json_file_path} already exists")
+        return
+
     print(f"Processing {image_path} ({size_mb:.2f} MB)")
 
     existing_title, existing_description, existing_keywords = show_image_iptc_meta(image_path)
 
-    vc_desc, enhanced_desc, new_keywords = generate_openai_description_and_keywords(
+    vc_desc, enhanced_desc, social_caption, new_keywords = generate_openai_description_and_keywords(
         image_path,
         existing_title,
         existing_description,
@@ -97,17 +112,24 @@ def process_image(image_path: str, preset: str) -> None:
         enhanced_description=enhanced_desc,
         keywords=merged_keywords,
         hashtags=hashtags,
+        social_caption=social_caption,
     )
 
-    json_file_path = sidecar_path_for_image(image_path)
     sidecar.save(json_file_path)
     print(f"Wrote metadata to {json_file_path}")
 
 
-def process_directory(directory: str, preset: str) -> None:
+def process_directory(directory: str, preset: str, overwrite: bool = False) -> None:
+    """Process all images in a directory.
+
+    Args:
+        directory: Directory to search for images.
+        preset: Prompt preset name to pass to process_image.
+        overwrite: If True, existing sidecar files will be overwritten. Default False.
+    """
     for path in iter_images(directory):
         try:
-            process_image(path, preset=preset)
+            process_image(path, preset=preset, overwrite=overwrite)
         except Exception as e:  # noqa: BLE001
             print(f"Error processing {path}: {e}")
 

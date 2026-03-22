@@ -74,8 +74,8 @@ def generate_openai_description_and_keywords(
     description: str,
     existing_keywords: List[str],
     preset: str,
-) -> Tuple[str, str, List[str]]:
-    """Call OpenAI vision model and return (vc_desc, enhanced_desc, keywords)."""
+) -> Tuple[str, str, str, List[str]]:
+    """Call OpenAI vision model and return (vc_desc, enhanced_desc, social_caption, keywords)."""
 
     client = _load_openai_client()
 
@@ -130,8 +130,15 @@ def generate_openai_description_and_keywords(
 
     vc_desc = str(data.get("visually_challenged_description", "") or "").strip()
     enhanced_desc = str(data.get("enhanced_description", "") or "").strip()
+    social_caption = str(data.get("social_caption", "") or "").strip()
+
     new_keywords = data.get("keywords", [])
     if not isinstance(new_keywords, list):
         new_keywords = [str(new_keywords)]
 
-    return vc_desc, enhanced_desc, [str(k).strip() for k in new_keywords if str(k).strip()]
+    return (
+        vc_desc,
+        enhanced_desc,
+        social_caption,
+        [str(k).strip() for k in new_keywords if str(k).strip()],
+    )

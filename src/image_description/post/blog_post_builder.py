@@ -2,7 +2,7 @@ import argparse
 import os
 import re
 import shutil
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from ..sidecar import Sidecar
@@ -91,6 +91,11 @@ def build_front_matter(
     - date_str: date in YYYY-MM-DD or a full timestamp
     - image_web_path: optional web path to the image (e.g. /assets/images/foo.jpg)
     - categories: list of categories
+
+    Timezone policy:
+    - If date_str is YYYY-MM-DD, we emit that date with the *current* UTC time.
+    - If date_str already includes a time/offset, we pass it through unchanged.
+    - If date_str is invalid, we fall back to "now" in UTC.
     """
     title = meta.get("title") or meta.get("original_title") or "Untitled"
     keywords = meta.get("keywords", [])
@@ -106,13 +111,16 @@ def build_front_matter(
 
     try:
         if " " in date_str:
+            # Validate the date portion; keep the rest as provided.
             datetime.strptime(date_str.split(" ")[0], "%Y-%m-%d")
             date_out = date_str
         else:
+            # Date-only: keep the date, but use current UTC time-of-day.
             datetime.strptime(date_str, "%Y-%m-%d")
-            date_out = f"{date_str} 10:00:00 -0500"
+            now_utc = datetime.now(timezone.utc)
+            date_out = f"{date_str} {now_utc.strftime('%H:%M:%S %z')}"
     except Exception:
-        date_out = f"{date_str} 10:00:00 -0500"
+        date_out = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S %z")
 
     lines: List[str] = []
     lines.append("---")
@@ -213,7 +221,9 @@ def build_body_multiple(metas: List[Dict[str, Any]], image_web_paths: List[Optio
 
     for idx, meta in enumerate(metas):
         # Section heading per sidecar
-        section_title = meta.get("title") or meta.get("original_title") or os.path.splitext(os.path.basename(meta.get("__source", "")))[0]
+        section_title = meta.get("title") or meta.get("original_title") or os.path.splitext(
+            os.path.basename(meta.get("__source", ""))
+        )[0]
         if not section_title:
             section_title = f"Image {idx + 1}"
         lines.append(f"## {section_title}")
@@ -286,7 +296,6 @@ def build_post_from_json_paths(
     out_root = os.path.abspath(out_root)
 
     # Load sidecars
-    sidecars: List[Sidecar] = []
     metas: List[Dict[str, Any]] = []
     image_web_paths: List[Optional[str]] = []
     for p in json_paths:
@@ -294,7 +303,6 @@ def build_post_from_json_paths(
         d = side.to_dict()
         # include source path so we can get basename when needed
         d["__source"] = p
-        sidecars.append(side)
         metas.append(d)
 
     # If single sidecar, keep compatibility and allow explicit_image override
@@ -337,7 +345,7 @@ def build_post_from_json_paths(
     posts_dir = os.path.join(out_root, "_posts")
     os.makedirs(posts_dir, exist_ok=True)
 
-    today_for_name = date.today().strftime("%Y-%m-%d")
+    today_for_name = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     out_name = f"{today_for_name}-{slug}.md"
     out_path = os.path.join(posts_dir, out_name)
 
@@ -398,75 +406,47 @@ def main(argv: Optional[List[str]] = None) -> None:
         description=(
             "Build a Jekyll blog post Markdown file from one or more image metadata "
             "JSON sidecars and write it into a GitHub Pages repo (_posts), also "
-            "copying image files into the site's /assets/images/ directory."
+            "copying any adjacent images into /assets."
         )
     )
     parser.add_argument(
-        "json_path",
+        "inputs",
         nargs="+",
-        help="One or more metadata JSON files or directories containing JSON files.",
-    )
-    parser.add_argument(
-        "--date",
-        help=(
-            "Post date in YYYY-MM-DD or full 'YYYY-MM-DD HH:MM:SS -ZZZZ' format. "
-            "If omitted, today's date is used."
-        ),
+        help="One or more JSON sidecar files or directories containing JSON sidecars",
     )
     parser.add_argument(
         "--out-root",
         required=True,
-        help=(
-            "Root of the GitHub Pages repo (e.g. /home/junwin/src/repos/junwin.github.io). "
-            "The post will be written under _posts/."
-        ),
+        help="Path to the root of the GitHub Pages/Jekyll repo (contains _posts)",
+    )
+    parser.add_argument(
+        "--date",
+        default=date.today().strftime("%Y-%m-%d"),
+        help="Post date (YYYY-MM-DD) or full timestamp. If YYYY-MM-DD, UTC is used.",
     )
     parser.add_argument(
         "--image",
-        help=(
-            "Web path to the image for front matter and body (e.g. /assets/images/foo.jpg). "
-            "When providing a single JSON this overrides the image guess. "
-            "When providing multiple JSONs this option is invalid."
-        ),
+        default=None,
+        help="Optional web path to image (single JSON only), e.g. /assets/images/foo.jpg",
     )
     parser.add_argument(
         "--categories",
         nargs="*",
         default=[],
-        help="Optional list of categories for the post.",
+        help="Optional list of categories",
     )
 
     args = parser.parse_args(argv)
 
-    # Resolve json paths (support directories and multiple files)
-    json_inputs = args.json_path or []
-    json_paths = collect_json_paths(json_inputs)
-
-    # Determine date: use provided or today's date
-    if args.date:
-        try:
-            if " " in args.date:
-                datetime.strptime(args.date.split(" ")[0], "%Y-%m-%d")
-                date_str = args.date
-            else:
-                datetime.strptime(args.date, "%Y-%m-%d")
-                date_str = args.date
-        except ValueError:
-            raise SystemExit("--date must be in YYYY-MM-DD or 'YYYY-MM-DD HH:MM:SS -ZZZZ' format")
-    else:
-        today = date.today().strftime("%Y-%m-%d")
-        date_str = today
-
-    out_root = os.path.abspath(args.out_root)
-
-    # If multiple JSONs provided, --image is invalid
-    if len(json_paths) > 1 and args.image:
-        raise SystemExit("--image may not be used when providing multiple JSON sidecars")
-
-    out_path = build_post_from_json_paths(json_paths, out_root, date_str, args.image, args.categories)
-
-    # Mirror previous behavior: print the path to the written file
-    print(f"Wrote blog post to {out_path}")
+    json_paths = collect_json_paths(args.inputs)
+    out_path = build_post_from_json_paths(
+        json_paths=json_paths,
+        out_root=args.out_root,
+        date_str=args.date,
+        explicit_image=args.image,
+        categories=args.categories,
+    )
+    print("Wrote", out_path)
 
 
 if __name__ == "__main__":
