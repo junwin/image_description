@@ -26,6 +26,15 @@ What it does *not* try to be:
 
 ---
 
+## Design notes (important behavior changes)
+
+- The JSON sidecar next to an image is the *factual core* for the image. It contains objective fields (titles, descriptions, keywords) produced by the model or read from existing IPTC.
+- Social post content (platform-specific hashtags, short social captions, etc.) is written to a separate derived file with the suffix `.social.json` (for example `IMG_0001.json` is the factual core and `IMG_0001.social.json` contains the social/post variants). This keeps the core data factual and stable while social prompts/hashtags can be regenerated or edited independently.
+- When the CLI requests platform-specific hashtags (e.g. for Twitter/X, Instagram, Mastodon), the tool validates the model output. If the model returns an empty list for any requested platform, the CLI will print a clear warning to stderr and exit with a non-zero status. This validation prevents silently publishing posts with missing required tags.
+- CLI behavior follows standard patterns used elsewhere in the repo: argparse-style flags, clear warnings printed to stderr, non-zero exit codes on validation failures, and explicit overwrite flags to avoid accidental changes.
+
+---
+
 ## CLI usage (recommended)
 
 To see the available options for the CLIs use the module invocation (recommended when running from the repo):
@@ -33,6 +42,12 @@ To see the available options for the CLIs use the module invocation (recommended
 - `python -m src.image_description.cli.image_cli --help`
 - `python -m src.image_description.cli.post_builder_cli --help`
 - `python -m src.image_description.cli.blog_post_builder_cli --help`
+
+Notes on flags and behavior you should expect:
+
+- Overwrite policy: when a JSON sidecar already exists the `describe` command will skip that image by default. To force regeneration of the factual sidecar use `--overwrite-sidecar` (also available as `--overwrite`).
+- Warnings and exits: validation issues (for example, empty hashtags for a requested platform) are printed to stderr as warnings and cause the CLI to exit with a non-zero status. The intent is to make these problems obvious in automation/CI.
+- Sidecar naming: the factual core is `<image_basename>.json`. The social derivative is `<image_basename>.social.json` and may contain platform keys with arrays of hashtags or short prompts for each platform.
 
 ### Why `python -m src.image_description...`?
 
@@ -58,7 +73,7 @@ These console scripts map to the same CLI entry points as the module invocations
 
 The design is:
 
-- **General, reusable metadata first** (titles, descriptions, keywords, hashtags).
+- **General, reusable metadata first** (titles, descriptions, keywords).
 - **Tailored prompts later**, when you actually want to create a social post or blog entry.
 
 ---
@@ -195,21 +210,40 @@ For each supported image file (e.g. `.jpg`, `.jpeg`, `.png`) in that directory, 
 
 ```
 2A9A8326.jpg   -> 2A9A8326.json
+2A9A8326.social.json  -> derived social prompts/hashtags (optional)
 ```
 
-The JSON structure includes:
+The factual JSON sidecar (the core) includes objective fields such as:
 
 ```json
 {
-  "original_title": "...",              // from the image, if present
-  "original_description": "...",        // from the image, if present
-  "title": "...",                       // working title (starts as original_title)
+  "original_title": "...",
+  "original_description": "...",
+  "title": "...",
   "visually_challenged_description": "...",
   "enhanced_description": "...",
-  "keywords": ["...", "..."],
-  "hashtags": "#tag1 #tag2 ..."
+  "keywords": ["...", "..."]
 }
 ```
+
+Social/post-specific variants (hashtags, platform captions) are written to `*.social.json`. Example:
+
+```json
+{
+  "platforms": {
+    "instagram": {
+      "hashtags": ["#city", "#streetphotography"],
+      "caption": "Short caption tailored for Instagram."
+    },
+    "x": {
+      "hashtags": ["#city", "#photo"],
+      "caption": "Short caption for X (Twitter)."
+    }
+  }
+}
+```
+
+If you request platform hashtags during the `describe` step, the CLI validates the hashtags arrays: if the model returns an empty array for any requested platform the tool will print a warning and exit with a non-zero status.
 
 ### 2.3 Prompt presets
 
@@ -233,7 +267,7 @@ If you omit `--preset`, the default is `orwell_ways_of_seeing`.
 python -m src.image_description.cli.image_cli describe /path/to/images/2A9A8326.jpg
 ```
 
-This will create `/path/to/images/2A9A8326.json`.
+This will create `/path/to/images/2A9A8326.json` (and `2A9A8326.social.json` if social prompts/hashtags were requested).
 
 ### 2.5 Embed metadata back into images
 
@@ -277,20 +311,11 @@ python -m src.image_description.cli.post_builder_cli /path/to/images/2A9A8326.js
 
 This prints Markdown to stdout (or use `--output` to write a file).
 
-### 3.3 Explicit image path (optional)
+### 3.3 Social prompts and image path
 
-```bash
-python -m src.image_description.cli.post_builder_cli \
-  /path/to/images/2A9A8326.json \
-  --format yaml \
-  --image-path /images/2021/2021Jan/2A9A8326.jpg
-```
-
-You can also omit the social-post prompt:
-
-```bash
-python -m src.image_description.cli.post_builder_cli /path/to/images/2A9A8326.json --no-prompt
-```
+- `post_builder_cli` can optionally include social prompts/hashtags in its output when a corresponding `*.social.json` exists.
+- Use `--no-prompt` to omit the social prompt from the generated output.
+- You can also pass `--image-path` to specify the path to the image as it should appear in the final document.
 
 ---
 
@@ -322,7 +347,14 @@ Important detail (matches the current code):
 
 ---
 
-## 5. VS Code integration
+## 5. Tests and CI
+
+- Tests are located in the `tests/` directory in the repo. Run them with `pytest -q` from the project root inside the virtualenv.
+- The test suite includes validation-related tests that ensure the CLI prints warnings and returns non-zero exit codes when social hashtag generation returns empty arrays for requested platforms. If you modify the CLI behavior, update these tests accordingly.
+
+---
+
+## 6. VS Code integration
 
 Use the `.vscode/launch.json` configurations to run the tools via `module` (equivalent to `python -m ...`).
 

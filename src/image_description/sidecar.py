@@ -1,7 +1,8 @@
 import json
 import os
+import sys
 from dataclasses import dataclass, field
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional, Tuple
 
 
 @dataclass
@@ -22,6 +23,12 @@ class Sidecar:
     hashtags: str = ""
     social_caption: str = ""
 
+    # Added per design doc: image identity information.
+    # `image_filename` is required to make the image-sidecar link explicit.
+    # `image_relative_path` is optional and may be empty; kept for future use.
+    image_filename: str = ""
+    image_relative_path: str = ""
+
     extra: Dict[str, Any] = field(default_factory=dict)
 
     @classmethod
@@ -35,6 +42,8 @@ class Sidecar:
             "keywords",
             "hashtags",
             "social_caption",
+            "image_filename",
+            "image_relative_path",
         }
 
         keywords = data.get("keywords", [])
@@ -55,6 +64,8 @@ class Sidecar:
             keywords=keywords,
             hashtags=str(data.get("hashtags", "") or ""),
             social_caption=str(data.get("social_caption", "") or ""),
+            image_filename=str(data.get("image_filename", "") or ""),
+            image_relative_path=str(data.get("image_relative_path", "") or ""),
             extra=extra,
         )
 
@@ -68,6 +79,8 @@ class Sidecar:
             "keywords": list(self.keywords),
             "hashtags": self.hashtags,
             "social_caption": self.social_caption,
+            "image_filename": self.image_filename,
+            "image_relative_path": self.image_relative_path,
         }
         data.update(self.extra)
         return data
@@ -80,7 +93,101 @@ class Sidecar:
             raise ValueError(f"Sidecar JSON must be an object: {json_path}")
         return cls.from_dict(data)
 
-    def save(self, json_path: str) -> None:
+    def save(self, json_path: str, image_root: Optional[str] = None) -> None:
+        """
+        Save the sidecar to json_path. If image_root is provided, compute and set
+        image_relative_path from image_root and this sidecar's image_filename.
+
+        Validation behaviour when image_root is provided:
+        - image_filename must be set and must NOT be an absolute path.
+        - the resolved path (join(image_root, image_filename) normalized) must be
+          located within image_root (no escaping via ..).
+
+        On validation errors, print a message to stderr and exit non-zero.
+        """
+        # If an image_root was supplied, validate and compute image_relative_path.
+        if image_root is not None:
+            if not self.image_filename:
+                sys.stderr.write("Error: --image-root was provided but sidecar.image_filename is empty.\n")
+                sys.exit(2)
+
+            # Reject absolute image filenames when image_root is used.
+            if os.path.isabs(self.image_filename):
+                sys.stderr.write("Error: absolute image paths are not allowed when --image-root is set.\n")
+                sys.exit(2)
+
+            # Normalize the image_root to an absolute canonical path.
+            root_abs = os.path.abspath(image_root)
+            # Join and normalize the target image path.
+            target = os.path.normpath(os.path.join(root_abs, self.image_filename))
+
+            # Ensure the resolved target path is within the image_root.
+            try:
+                common = os.path.commonpath([root_abs, target])
+            except ValueError:
+                # In case paths are on different drives (Windows) or similar issues.
+                sys.stderr.write("Error: invalid image_root or image_filename; cannot compute common path.\n")
+                sys.exit(2)
+
+            if common != root_abs:
+                sys.stderr.write("Error: resolved image path escapes the image root (possible '..' in path).\n")
+                sys.exit(2)
+
+            # Compute relative path (may contain subdirectories)
+            rel = os.path.relpath(target, start=root_abs)
+            # Normalize to use posix-like separators? Keep OS-native separators.
+            self.image_relative_path = rel
+
+        # Ensure destination directory exists
         os.makedirs(os.path.dirname(os.path.abspath(json_path)) or ".", exist_ok=True)
         with open(json_path, "w", encoding="utf-8") as f:
             json.dump(self.to_dict(), f, indent=4)
+
+    @staticmethod
+    def social_path_for(sidecar_path: str) -> str:
+        """Return the suggested sibling social JSON path for a given sidecar path.
+
+        For: /path/to/IMG_1234.json -> /path/to/IMG_1234.social.json
+        """
+        root, ext = os.path.splitext(sidecar_path)
+        return f"{root}.social.json"
+
+
+# Helper for CLI use: resolve and validate an image path given an image_root option.
+def resolve_image_against_root(image_root: Optional[str], image_path: str) -> Tuple[str, str]:
+    """
+    Resolve image_path against image_root and return a tuple (resolved_abs_path, image_relative_path).
+
+    Behaviour:
+    - If image_root is None: resolved_abs_path = os.path.abspath(image_path); image_relative_path = os.path.basename(image_path)
+    - If image_root is provided:
+      - reject absolute image_path (print to stderr and exit non-zero)
+      - join image_root + image_path, normalize and ensure the final path is within image_root
+      - return (resolved_abs, relpath)
+
+    On validation errors, prints to stderr and exits with code 2.
+    """
+    if image_root is None:
+        resolved = os.path.abspath(image_path)
+        rel = os.path.basename(image_path)
+        return resolved, rel
+
+    if os.path.isabs(image_path):
+        sys.stderr.write("Error: absolute image paths are not allowed when --image-root is set.\n")
+        sys.exit(2)
+
+    root_abs = os.path.abspath(image_root)
+    target = os.path.normpath(os.path.join(root_abs, image_path))
+
+    try:
+        common = os.path.commonpath([root_abs, target])
+    except ValueError:
+        sys.stderr.write("Error: invalid image_root or image_path; cannot compute common path.\n")
+        sys.exit(2)
+
+    if common != root_abs:
+        sys.stderr.write("Error: resolved image path escapes the image root (possible '..' in path).\n")
+        sys.exit(2)
+
+    rel = os.path.relpath(target, start=root_abs)
+    return target, rel
