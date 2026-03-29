@@ -44,8 +44,8 @@ def resolve_image_and_relative(image_root: Optional[str], image_path: str) -> Tu
 
     Rules when image_root is provided:
     - image_path must NOT be absolute (reject and exit non-zero).
-    - Join image_root + image_path, normalize.
-    - Ensure the resolved path is inside image_root (no ".." escape). If it escapes, print an error and exit non-zero.
+    - Join image_root + image_path, normalize and resolve symlinks.
+    - Ensure the resolved path is inside image_root (no ".." escape or symlink escape). If it escapes, print an error and exit non-zero.
 
     Returns: (absolute_image_path, image_relative_path_or_None)
     """
@@ -59,21 +59,27 @@ def resolve_image_and_relative(image_root: Optional[str], image_path: str) -> Tu
         sys.exit(2)
 
     root_abs = os.path.abspath(image_root)
+    # Use realpath to avoid symlink-based escapes
+    root_real = os.path.realpath(root_abs)
+
+    # Join and normalize the provided relative path
     joined = os.path.normpath(os.path.join(root_abs, image_path))
+    joined_real = os.path.realpath(joined)
 
     try:
-        common = os.path.commonpath([root_abs, joined])
+        # Compare commonpath of real paths to prevent escapes via '..' or symlinks
+        common = os.path.commonpath([root_real, joined_real])
     except ValueError:
-        # Different drives (unlikely on Unix), treat as escape
-        print(f"Error: resolved path is not within the image root: {joined}", file=sys.stderr)
+        # Different mounts/drives (unlikely on Unix), treat as escape
+        print(f"Error: resolved path is not within the image root: {joined_real}", file=sys.stderr)
         sys.exit(2)
 
-    if common != root_abs:
-        print(f"Error: resolved path escapes image root. root={root_abs}, resolved={joined}", file=sys.stderr)
+    if common != root_real:
+        print(f"Error: resolved path escapes image root. root={root_real}, resolved={joined_real}", file=sys.stderr)
         sys.exit(2)
 
-    rel = os.path.relpath(joined, root_abs)
-    return joined, rel
+    rel = os.path.relpath(joined_real, root_real)
+    return joined_real, rel
 
 
 def sidecar_core_for_image(image_path: str, image_root: Optional[str] = None) -> dict:
@@ -139,6 +145,33 @@ def _run_self_tests() -> None:
             assert e.code != 0
         else:
             raise AssertionError("Expected SystemExit for escaping path when image_root is set")
+
+        # resolve_image_and_relative: reject symlink that points outside the root
+        outside = os.path.join(tmp, "outside")
+        os.makedirs(outside)
+        outside_file = os.path.join(outside, "evil.jpg")
+        with open(outside_file, "wb") as f:
+            f.write(b"\x00")
+
+        # create a symlink inside root that points to the outside file
+        symlink_path = os.path.join(root, "link.jpg")
+        try:
+            os.symlink(outside_file, symlink_path)
+        except (AttributeError, OSError):
+            # symlink may not be supported on the platform running tests; skip this part
+            print("Skipping symlink test; symlinks not supported in this environment.")
+        else:
+            try:
+                resolve_image_and_relative(root, "link.jpg")
+            except SystemExit as e:
+                assert e.code != 0
+            else:
+                raise AssertionError("Expected SystemExit for symlink that resolves outside image_root")
+
+        # resolve_image_and_relative: directory path should resolve and return rel
+        abs_dir, rel_dir = resolve_image_and_relative(root, "nested")
+        assert os.path.abspath(nested) == abs_dir
+        assert rel_dir == os.path.join("nested")
 
         print("All self-tests passed.")
     finally:

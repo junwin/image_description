@@ -116,10 +116,11 @@ class Sidecar:
                 sys.stderr.write("Error: absolute image paths are not allowed when --image-root is set.\n")
                 sys.exit(2)
 
-            # Normalize the image_root to an absolute canonical path.
-            root_abs = os.path.abspath(image_root)
+            # Normalize the image_root to an absolute canonical path (follow symlinks).
+            root_abs = os.path.realpath(image_root)
             # Join and normalize the target image path.
             target = os.path.normpath(os.path.join(root_abs, self.image_filename))
+            target = os.path.realpath(target)
 
             # Ensure the resolved target path is within the image_root.
             try:
@@ -135,7 +136,7 @@ class Sidecar:
 
             # Compute relative path (may contain subdirectories)
             rel = os.path.relpath(target, start=root_abs)
-            # Normalize to use posix-like separators? Keep OS-native separators.
+            # Store the relative path using OS-native separators.
             self.image_relative_path = rel
 
         # Ensure destination directory exists
@@ -154,6 +155,7 @@ class Sidecar:
 
 
 # Helper for CLI use: resolve and validate an image path given an image_root option.
+# This function is used by CLIs to apply the --image-root semantics.
 def resolve_image_against_root(image_root: Optional[str], image_path: str) -> Tuple[str, str]:
     """
     Resolve image_path against image_root and return a tuple (resolved_abs_path, image_relative_path).
@@ -176,8 +178,9 @@ def resolve_image_against_root(image_root: Optional[str], image_path: str) -> Tu
         sys.stderr.write("Error: absolute image paths are not allowed when --image-root is set.\n")
         sys.exit(2)
 
-    root_abs = os.path.abspath(image_root)
+    root_abs = os.path.realpath(image_root)
     target = os.path.normpath(os.path.join(root_abs, image_path))
+    target = os.path.realpath(target)
 
     try:
         common = os.path.commonpath([root_abs, target])
@@ -191,3 +194,32 @@ def resolve_image_against_root(image_root: Optional[str], image_path: str) -> Tu
 
     rel = os.path.relpath(target, start=root_abs)
     return target, rel
+
+
+# Utility: list non-recursive image files in a directory resolved against image_root.
+# CLIs can call this when the positional path resolves to a directory.
+def list_files_non_recursive(root: str, rel_dir: str) -> List[str]:
+    """
+    Return a list of filenames (not absolute paths) contained directly in root/rel_dir.
+
+    - root is an absolute path to the image_root
+    - rel_dir is a path relative to root
+    The returned list contains filenames relative to root (i.e. joined rel_dir + name).
+    """
+    base = os.path.realpath(os.path.join(root, rel_dir))
+    # Ensure base is within root
+    try:
+        common = os.path.commonpath([os.path.realpath(root), base])
+    except ValueError:
+        return []
+    if common != os.path.realpath(root):
+        return []
+    if not os.path.isdir(base):
+        return []
+    entries = []
+    for name in os.listdir(base):
+        full = os.path.join(base, name)
+        if os.path.isfile(full):
+            # Return path relative to root
+            entries.append(os.path.relpath(full, start=root))
+    return entries

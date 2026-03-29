@@ -4,7 +4,7 @@ import os
 import sys
 from typing import Any, Dict, List, Optional
 
-from ..sidecar import Sidecar
+from ..sidecar import Sidecar, resolve_image_against_root, list_files_non_recursive
 
 
 def _parse_hashtags_from_string(s: str) -> List[str]:
@@ -60,6 +60,56 @@ def _generate_social_for_sidecar(sidecar: Sidecar, platforms: List[str]) -> Dict
     return results
 
 
+def _process_single_sidecar(sidecar_path: str, platforms: List[str], overwrite: bool, image_root: Optional[str]) -> Optional[str]:
+    """
+    Process a single sidecar JSON path. Returns None on success or an error message on failure.
+    """
+    if not os.path.exists(sidecar_path):
+        return f"sidecar JSON not found: {sidecar_path}"
+
+    social_path = Sidecar.social_path_for(sidecar_path)
+    if os.path.exists(social_path) and not overwrite:
+        return f"social derivative already exists at {social_path}; use --overwrite-sidecar to replace"
+
+    try:
+        sidecar = Sidecar.load(sidecar_path)
+    except Exception as e:
+        return f"Error loading sidecar: {e}"
+
+    # When image_root is provided, ensure we can compute image_relative_path for the core.
+    if image_root is not None:
+        if not sidecar.image_filename:
+            return f"Error: --image-root was provided but sidecar.image_filename is empty for {sidecar_path}"
+        try:
+            # resolve_image_against_root will validate and return (abs, rel)
+            _, rel = resolve_image_against_root(image_root, sidecar.image_filename)
+            # set in-memory; do not overwrite on disk
+            sidecar.image_relative_path = rel
+        except SystemExit:
+            return f"Error: sidecar.image_filename resolves outside image_root for {sidecar_path}"
+
+    # Generate social content
+    social_data = _generate_social_for_sidecar(sidecar, platforms)
+
+    # Validation: hashtags must be present (non-empty list) for each requested platform
+    missing_hashtags = [p for p, d in social_data.items() if not d.get("hashtags")]
+    if missing_hashtags:
+        return f"model returned no hashtags for platforms: {', '.join(missing_hashtags)} (sidecar: {sidecar_path})"
+
+    # Build derivative JSON with clear separation: 'core' factual sidecar and 'social' derivative
+    derivative: Dict[str, Any] = {"core": sidecar.to_dict(), "social": social_data}
+
+    try:
+        os.makedirs(os.path.dirname(os.path.abspath(social_path)) or ".", exist_ok=True)
+        with open(social_path, "w", encoding="utf-8") as f:
+            json.dump(derivative, f, indent=2, ensure_ascii=False)
+    except Exception as e:
+        return f"Error writing social derivative: {e}"
+
+    print(f"Wrote social derivative to {social_path}")
+    return None
+
+
 def main(argv: Optional[List[str]] = None) -> None:
     parser = argparse.ArgumentParser(
         description=(
@@ -68,7 +118,7 @@ def main(argv: Optional[List[str]] = None) -> None:
             "and generated content is written to a sibling .social.json file."
         )
     )
-    parser.add_argument("json_path", nargs=1, help="Path to the metadata JSON sidecar file.")
+    parser.add_argument("json_path", nargs=1, help="Path to the metadata JSON sidecar file or a directory when used with --image-root.")
     parser.add_argument(
         "--platforms",
         nargs="+",
@@ -81,50 +131,63 @@ def main(argv: Optional[List[str]] = None) -> None:
         action="store_true",
         help="Overwrite existing .social.json derivative files. By default existing derivatives are preserved.",
     )
+    parser.add_argument(
+        "--image-root",
+        dest="image_root",
+        help=(
+            "When set, the provided json_path must be relative to image_root. "
+            "If json_path resolves to a directory, process files in that directory non-recursively."
+        ),
+    )
 
     args = parser.parse_args(argv)
 
     in_path = args.json_path[0]
-    if not os.path.exists(in_path):
-        sys.stderr.write(f"Error: sidecar JSON not found: {in_path}\n")
+    image_root = args.image_root
+
+    sidecar_paths: List[str] = []
+
+    if image_root:
+        # Resolve provided path against image_root. This enforces the relative-path rule
+        try:
+            resolved_abs, rel = resolve_image_against_root(image_root, in_path)
+        except SystemExit:
+            # resolve_image_against_root writes its own stderr message before exiting
+            raise
+
+        if os.path.isdir(resolved_abs):
+            # List files non-recursively under the provided directory
+            entries = list_files_non_recursive(os.path.realpath(image_root), rel)
+            # We are only interested in sidecar JSON files (exclude .social.json)
+            for e in entries:
+                if e.endswith(".json") and not e.endswith(".social.json"):
+                    sidecar_paths.append(os.path.join(os.path.realpath(image_root), e))
+        else:
+            sidecar_paths.append(resolved_abs)
+    else:
+        # No image_root: treat in_path as a direct filesystem path
+        if os.path.isdir(in_path):
+            # Non-recursive: list files in the directory and pick .json files (exclude .social.json)
+            for name in os.listdir(in_path):
+                full = os.path.join(in_path, name)
+                if os.path.isfile(full) and name.endswith(".json") and not name.endswith(".social.json"):
+                    sidecar_paths.append(full)
+        else:
+            sidecar_paths.append(in_path)
+
+    failures: List[str] = []
+    for sp in sidecar_paths:
+        err = _process_single_sidecar(sp, args.platforms, args.overwrite_sidecar, image_root)
+        if err:
+            sys.stderr.write(f"Warning: {err}\n")
+            failures.append(err)
+
+    if failures:
+        sys.stderr.write(f"Completed with {len(failures)} failure(s).\n")
         raise SystemExit(2)
 
-    social_path = Sidecar.social_path_for(in_path)
-    if os.path.exists(social_path) and not args.overwrite_sidecar:
-        # Mirror previous tools: print a warning and exit non-zero to signal no-op
-        sys.stderr.write(f"Warning: social derivative already exists at {social_path}; use --overwrite-sidecar to replace\n")
-        raise SystemExit(2)
-
-    try:
-        sidecar = Sidecar.load(in_path)
-    except Exception as e:
-        sys.stderr.write(f"Error loading sidecar: {e}\n")
-        raise SystemExit(2)
-
-    # Generate social content
-    social_data = _generate_social_for_sidecar(sidecar, args.platforms)
-
-    # Validation: hashtags must be present (non-empty list) for each requested platform
-    missing_hashtags = [p for p, d in social_data.items() if not d.get("hashtags")]
-    if missing_hashtags:
-        sys.stderr.write(
-            f"Warning: model returned no hashtags for platforms: {', '.join(missing_hashtags)}\n"
-        )
-        # Per requirements: print a warning and exit non-zero
-        raise SystemExit(2)
-
-    # Build derivative JSON with clear separation: 'core' factual sidecar and 'social' derivative
-    derivative: Dict[str, Any] = {"core": sidecar.to_dict(), "social": social_data}
-
-    try:
-        os.makedirs(os.path.dirname(os.path.abspath(social_path)) or ".", exist_ok=True)
-        with open(social_path, "w", encoding="utf-8") as f:
-            json.dump(derivative, f, indent=2, ensure_ascii=False)
-    except Exception as e:
-        sys.stderr.write(f"Error writing social derivative: {e}\n")
-        raise SystemExit(2)
-
-    print(f"Wrote social derivative to {social_path}")
+    # Success
+    return
 
 
 if __name__ == "__main__":
