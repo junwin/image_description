@@ -54,6 +54,17 @@ def build_prompt(meta: Dict[str, Any]) -> str:
     )
 
 
+def prompt_from_sidecar_path(json_path: str) -> str:
+    """Load a JSON sidecar and return the raw prompt text for social post.
+
+    This helper provides a clean way for CLIs to request only the prompt
+    text (without surrounding headings or code fences).
+    """
+    sidecar = Sidecar.load(json_path)
+    meta = sidecar.to_dict()
+    return build_prompt(meta)
+
+
 def _yaml_escape(s: str) -> str:
     if any(c in s for c in [":", "-", "#", "{", "}", "[", "]", ",", "&", "*", "?", "|", ">", "%", "@", "`", '"', "'"]):
         return '"' + s.replace('"', '\\"') + '"'
@@ -371,11 +382,20 @@ def main() -> None:
             "JSON filename. NOTE: cannot be used when passing multiple JSON files."
         ),
     )
-    parser.add_argument(
+
+    # Mutually exclusive control for prompt-related output
+    prompt_group = parser.add_mutually_exclusive_group()
+    prompt_group.add_argument(
         "--no-prompt",
         action="store_true",
         help="Do not include the social-post prompt in the output.",
     )
+    prompt_group.add_argument(
+        "--prompt-only",
+        action="store_true",
+        help="Output only the prompt for social post (plain text). No headings or other sections.",
+    )
+
     parser.add_argument(
         "--copy-images",
         action="store_true",
@@ -399,17 +419,27 @@ def main() -> None:
 
     args = parser.parse_args()
 
+    # If prompt-only was requested, bypass the normal full document renderer and
+    # print only the raw prompt(s). For multiple sidecars we'll print each
+    # prompt separated by a blank line.
     try:
-        output = build_from_json(
-            args.json_path if len(args.json_path) > 1 else args.json_path[0],
-            fmt=args.format,
-            image_path=args.image_path,
-            include_prompt=not args.no_prompt,
-            copy_images=args.copy_images,
-            assets_dir=args.assets_dir,
-            asset_url_prefix=args.asset_url_prefix,
-            document_title=args.title,
-        )
+        if args.prompt_only:
+            # args.json_path is a list (nargs='+')
+            prompts: List[str] = []
+            for jp in args.json_path:
+                prompts.append(prompt_from_sidecar_path(jp))
+            output = "\n\n".join(prompts).rstrip() + "\n"
+        else:
+            output = build_from_json(
+                args.json_path if len(args.json_path) > 1 else args.json_path[0],
+                fmt=args.format,
+                image_path=args.image_path,
+                include_prompt=not args.no_prompt,
+                copy_images=args.copy_images,
+                assets_dir=args.assets_dir,
+                asset_url_prefix=args.asset_url_prefix,
+                document_title=args.title,
+            )
     except Exception as e:
         sys.stderr.write(f"Error: {e}\n")
         sys.exit(2)
@@ -423,3 +453,14 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
+
+# Manual test notes:
+# If no test framework is present, verify manually with:
+# python -m src.image_description.post.post_builder \
+#   path/to/sidecar.json --prompt-only
+# This should print only the raw prompt text (no markdown headings, fences, etc.).
+# For the standard behavior try:
+# python -m src.image_description.post.post_builder path/to/sidecar.json
+# which should produce the full markdown including the Prompt for social post
+# section wrapped in a ```text fence.
