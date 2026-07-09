@@ -79,34 +79,54 @@ def copy_image_to_repo(json_path: str, out_root: str, image_web_path: Optional[s
         print(f"Warning: failed to copy image {src_path} -> {dest_path}: {e}")
 
 
+def _collect_all_hashtags(metas: List[Dict[str, Any]]) -> List[str]:
+    """Collect deduplicated, ordered hashtags from all metas.
+
+    Each meta's 'hashtags' field is a space-separated string like
+    '#tag1 #tag2'.  Tags are stripped of the leading '#' and returned
+    as a deduplicated list in first-seen order.
+    """
+    seen: set = set()
+    tags: List[str] = []
+    for meta in metas:
+        raw = str(meta.get("hashtags", ""))
+        for chunk in raw.split():
+            tag = chunk.lstrip("#").strip()
+            if tag and tag not in seen:
+                seen.add(tag)
+                tags.append(tag)
+    return tags
+
+
 def build_front_matter(
-    meta: Dict[str, Any],
+    metas: List[Dict[str, Any]],
     date_str: str,
     image_web_path: Optional[str],
     categories: List[str],
 ) -> str:
-    """Build the Jekyll front matter YAML block from metadata.
+    """Build the Jekyll front matter YAML block from one or more sidecar metas.
 
-    - meta: dictionary produced by Sidecar.to_dict()
+    - metas: list of dicts produced by Sidecar.to_dict()
     - date_str: date in YYYY-MM-DD or a full timestamp
-    - image_web_path: optional web path to the image (e.g. /assets/images/foo.jpg)
+    - image_web_path: optional web path to the lead image (e.g. /assets/images/foo.jpg)
     - categories: list of categories
+
+    Title comes from the first sidecar and is lowercased.
+    Tags are the deduplicated union of hashtags from ALL sidecars (stripped of '#').
 
     Timezone policy:
     - If date_str is YYYY-MM-DD, we emit that date with the *current* UTC time.
     - If date_str already includes a time/offset, we pass it through unchanged.
     - If date_str is invalid, we fall back to "now" in UTC.
     """
-    title = meta.get("title") or meta.get("original_title") or "Untitled"
-    keywords = meta.get("keywords", [])
-    if isinstance(keywords, list):
-        tags = [str(k) for k in keywords]
-    elif keywords:
-        tags = [str(keywords)]
-    else:
-        tags = []
+    if not metas:
+        return "---\n---\n"
 
-    enhanced_description = meta.get("enhanced_description", "")
+    first = metas[0]
+    title = (first.get("title") or first.get("original_title") or "Untitled").strip().lower()
+    tags = _collect_all_hashtags(metas)
+
+    enhanced_description = first.get("enhanced_description", "")
     excerpt = first_sentence(enhanced_description)
 
     try:
@@ -148,84 +168,89 @@ def build_front_matter(
     return "\n".join(lines)
 
 
-def build_body_single(meta: Dict[str, Any], image_web_path: Optional[str]) -> str:
+def build_body_single(meta: Dict[str, Any], image_web_path: Optional[str], subtitle: str) -> str:
     """Build the Markdown body for a single sidecar.
 
-    Uses H1 once for the title and H2 for the internal sections (original,
-    enhanced, keywords, hashtags) to preserve backward compatibility.
+    Structure:
+      ## {subtitle}        ← evocative hook
+      ## {section_title}   ← per-image heading
+      ![...](...)
+      ### Original notes
+      ### Description for the visually challenged
+      ### Hashtags
     """
-    title = meta.get("title") or meta.get("original_title") or "Untitled"
+    section_title = (meta.get("title") or meta.get("original_title") or "Untitled").strip().lower()
     original_description = meta.get("original_description", "")
-    enhanced_description = meta.get("enhanced_description", "")
     visually_challenged_description = meta.get("visually_challenged_description", "")
-    keywords = meta.get("keywords", [])
     hashtags = meta.get("hashtags", "")
 
     lines: List[str] = []
 
-    # H1 once for the post title
-    lines.append(f"# {title}")
+    # Hook
+    lines.append(f"## {subtitle}")
+    lines.append("")
+
+    # Per-image section
+    lines.append(f"## {section_title}")
     lines.append("")
 
     if image_web_path:
-        lines.append(f"![{title}]({image_web_path})")
+        lines.append(f"![{section_title}]({image_web_path})")
         lines.append("")
 
     if original_description:
-        lines.append("## Original notes")
+        lines.append("### Original notes")
         lines.append(original_description)
         lines.append("")
 
-    if enhanced_description:
-        lines.append("## Enhanced description")
-        lines.append(enhanced_description)
-        lines.append("")
-
     if visually_challenged_description:
-        lines.append("## Description for the visually challenged")
+        lines.append("### Description for the visually challenged")
         lines.append(visually_challenged_description)
         lines.append("")
 
-    if keywords:
-        if isinstance(keywords, list):
-            kw_str = ", ".join(str(k) for k in keywords)
-        else:
-            kw_str = str(keywords)
-        lines.append("## Keywords")
-        lines.append(kw_str)
-        lines.append("")
-
     if hashtags:
-        lines.append("## Hashtags")
+        lines.append("### Hashtags")
         lines.append(str(hashtags))
         lines.append("")
 
     return "\n".join(lines).rstrip() + "\n"
 
 
-def build_body_multiple(metas: List[Dict[str, Any]], image_web_paths: List[Optional[str]]) -> str:
+def build_body_multiple(
+    metas: List[Dict[str, Any]],
+    image_web_paths: List[Optional[str]],
+    subtitle: str,
+) -> str:
     """Build the Markdown body for multiple sidecars combined into one post.
 
-    - Uses a single H1 (title from the first sidecar) at the top, and an H2
-      heading for each sidecar section. Internal subsections use H3 headings.
+    Structure:
+      ## {subtitle}           ← evocative hook
+      ## {section_title_1}    ← per-image heading
+      ![...](...)
+      ### Original notes
+      ### Description for the visually challenged
+      ### Hashtags
+      ...repeated for each sidecar...
     """
     if not metas:
         return ""
 
-    top_title = metas[0].get("title") or metas[0].get("original_title") or "Untitled"
     lines: List[str] = []
 
-    # H1 once for the combined post
-    lines.append(f"# {top_title}")
+    # Hook
+    lines.append(f"## {subtitle}")
     lines.append("")
 
     for idx, meta in enumerate(metas):
-        # Section heading per sidecar
-        section_title = meta.get("title") or meta.get("original_title") or os.path.splitext(
-            os.path.basename(meta.get("__source", ""))
-        )[0]
+        section_title = (
+            meta.get("title")
+            or meta.get("original_title")
+            or os.path.splitext(os.path.basename(meta.get("__source", "")))[0]
+        )
         if not section_title:
             section_title = f"Image {idx + 1}"
+        section_title = section_title.strip().lower()
+
         lines.append(f"## {section_title}")
         lines.append("")
 
@@ -235,9 +260,7 @@ def build_body_multiple(metas: List[Dict[str, Any]], image_web_paths: List[Optio
             lines.append("")
 
         original_description = meta.get("original_description", "")
-        enhanced_description = meta.get("enhanced_description", "")
         visually_challenged_description = meta.get("visually_challenged_description", "")
-        keywords = meta.get("keywords", [])
         hashtags = meta.get("hashtags", "")
 
         if original_description:
@@ -245,23 +268,9 @@ def build_body_multiple(metas: List[Dict[str, Any]], image_web_paths: List[Optio
             lines.append(original_description)
             lines.append("")
 
-        if enhanced_description:
-            lines.append("### Enhanced description")
-            lines.append(enhanced_description)
-            lines.append("")
-
         if visually_challenged_description:
             lines.append("### Description for the visually challenged")
             lines.append(visually_challenged_description)
-            lines.append("")
-
-        if keywords:
-            if isinstance(keywords, list):
-                kw_str = ", ".join(str(k) for k in keywords)
-            else:
-                kw_str = str(keywords)
-            lines.append("### Keywords")
-            lines.append(kw_str)
             lines.append("")
 
         if hashtags:
@@ -278,17 +287,15 @@ def build_post_from_json_paths(
     date_str: str,
     explicit_image: Optional[str],
     categories: List[str],
+    subtitle: Optional[str] = None,
 ) -> str:
     """Build a Jekyll blog post Markdown file from one or more image metadata JSON files.
 
     Behavior:
-    - If json_paths contains a single file, this function preserves previous
-      behavior (single-sidecar post).
-    - If multiple files are provided, they are combined into one post: the title
-      from the first sidecar is used as the post title, a single H1 is written
-      at the top of the body, and each sidecar is rendered under its own H2
-      section. Images next to each JSON are copied into out_root/assets and
-      referenced under their respective sections.
+    - If json_paths contains a single file, single-sidecar post.
+    - If multiple files, they are combined into one post.
+    - Tags in frontmatter are the deduplicated union of all per-image hashtags.
+    - Subtitle defaults to the first sidecar's original_description if not provided.
 
     Returns the path to the written Markdown file.
     """
@@ -301,42 +308,40 @@ def build_post_from_json_paths(
     for p in json_paths:
         side = Sidecar.load(p)
         d = side.to_dict()
-        # include source path so we can get basename when needed
         d["__source"] = p
         metas.append(d)
+
+    # Default subtitle
+    if subtitle is None:
+        subtitle = metas[0].get("original_description", "") if metas else ""
 
     # If single sidecar, keep compatibility and allow explicit_image override
     if len(metas) == 1:
         json_path = json_paths[0]
-        meta = metas[0]
 
         image_web_path = guess_image_web_path(json_path, explicit_image)
         image_web_paths = [image_web_path]
 
-        # Copy image if available
         copy_image_to_repo(json_path, out_root, image_web_path)
 
-        front_matter = build_front_matter(meta, date_str, image_web_path, categories)
-        body = build_body_single(meta, image_web_path)
+        front_matter = build_front_matter(metas, date_str, image_web_path, categories)
+        body = build_body_single(metas[0], image_web_path, subtitle)
 
         base_name = os.path.splitext(os.path.basename(json_path))[0]
         slug = base_name or "post"
 
     else:
-        # Multiple sidecars: explicit_image is not allowed
         if explicit_image:
             raise SystemExit("--image may not be used when providing multiple JSON sidecars")
 
-        # For each sidecar, guess image and copy
         for p in json_paths:
             img = guess_image_web_path(p, None)
             image_web_paths.append(img)
             copy_image_to_repo(p, out_root, img)
 
-        # Front matter uses first meta for title/excerpt/tags. Use first image if any
         front_image = image_web_paths[0] if image_web_paths else None
-        front_matter = build_front_matter(metas[0], date_str, front_image, categories)
-        body = build_body_multiple(metas, image_web_paths)
+        front_matter = build_front_matter(metas, date_str, front_image, categories)
+        body = build_body_multiple(metas, image_web_paths, subtitle)
 
         base_name = os.path.splitext(os.path.basename(json_paths[0]))[0]
         slug = base_name or "post"
@@ -393,14 +398,17 @@ def main(argv: Optional[List[str]] = None) -> None:
     image metadata JSON sidecar files.
 
     Usage:
-      python -m image_description.post.blog_post_builder <json-or-dir> [<json-or-dir> ...] \
-          --out-root /path/to/site [--date YYYY-MM-DD] [--image /assets/images/foo.jpg] [--categories cat1 cat2]
+      python -m image_description.post.blog_post_builder <json-or-dir> [<json-or-dir> ...] \\
+          --out-root /path/to/site [--date YYYY-MM-DD] [--image /assets/images/foo.jpg] \\
+          [--categories cat1 cat2] [--subtitle "evocative hook"]
 
     Notes:
     - You may provide one or more JSON files or directories containing JSON files.
     - When providing multiple JSON sidecars they are combined into a single
       post. In that case --image is invalid (use per-sidecar images next to
       each JSON instead).
+    - --subtitle sets the evocative hook that appears as the first ## heading
+      in the body. Defaults to the first sidecar's original_description.
     """
     parser = argparse.ArgumentParser(
         description=(
@@ -435,6 +443,11 @@ def main(argv: Optional[List[str]] = None) -> None:
         default=[],
         help="Optional list of categories",
     )
+    parser.add_argument(
+        "--subtitle",
+        default=None,
+        help="Evocative hook (## heading) that leads the post body. Defaults to original_description.",
+    )
 
     args = parser.parse_args(argv)
 
@@ -445,6 +458,7 @@ def main(argv: Optional[List[str]] = None) -> None:
         date_str=args.date,
         explicit_image=args.image,
         categories=args.categories,
+        subtitle=args.subtitle,
     )
     print("Wrote", out_path)
 

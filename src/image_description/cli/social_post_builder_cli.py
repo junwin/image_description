@@ -1,3 +1,21 @@
+#!/usr/bin/env python3
+"""
+CLI for generating platform-specific social post derivatives from image sidecar JSON.
+
+When called from an agent, the command will be in the form:
+    bash -lc "source .venv/bin/activate && python -m src.image_description.cli.social_post_builder_cli <args>"
+
+Arguments:
+    json_path: Path to the metadata JSON sidecar file or a directory when used with --image-root (absolute path)
+    --platforms: One or more target platforms to generate content for (default: all)
+    --overwrite-sidecar: Overwrite existing .social.json derivative files
+    --image-root: When set, the provided json_path must be relative to image_root
+
+The factual core remains in the original sidecar and generated content is written
+to a sibling .social.json file. If the model returns an empty list ([]) for hashtags/tags
+for any requested platform, the CLI prints a warning to stderr and exits non-zero.
+"""
+
 import argparse
 import json
 import os
@@ -118,7 +136,7 @@ def main(argv: Optional[List[str]] = None) -> None:
             "and generated content is written to a sibling .social.json file."
         )
     )
-    parser.add_argument("json_path", nargs=1, help="Path to the metadata JSON sidecar file or a directory when used with --image-root.")
+    parser.add_argument("json_path", nargs=1, help="Path to the metadata JSON sidecar file or a directory when used with --image-root (absolute path).")
     parser.add_argument(
         "--platforms",
         nargs="+",

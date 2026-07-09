@@ -1,3 +1,36 @@
+#!/usr/bin/env python3
+"""
+CLI for building a Jekyll blog post from one or more image sidecar JSON files.
+
+When called from an agent, the command will be in the form:
+    bash -lc "source .venv/bin/activate && python -m src.image_description.cli.blog_post_builder_cli <args>"
+
+Arguments:
+    json_path: One or more metadata JSON files or directories containing JSON files (absolute paths)
+    --date: Post date in YYYY-MM-DD or full 'YYYY-MM-DD HH:MM:SS -ZZZZ' format
+    --out-root: Root of the GitHub Pages repo (absolute path)
+    --image: Web path to the image for front matter and body (valid only for single JSON)
+    --categories: Optional list of categories for the post
+    --subtitle: Evocative hook that appears as the first ## heading in the body.
+                Defaults to the first sidecar's original_description.
+
+This CLI supports a single JSON (backward compatible) or multiple JSONs /
+directories containing JSON files. When multiple sidecars are provided they
+are combined into a single post: the title from the first sidecar is used
+as the post title (lowercased), each sidecar is rendered under its own H2
+section, and tags in frontmatter are the deduplicated union of all per-image
+hashtags (stripped of #).
+
+Note on images:
+- For a single JSON you may pass --image to explicitly set the web path
+  used in the front matter and body (e.g. /assets/images/foo.jpg). If
+  omitted the tool will look for an image file next to the JSON and copy
+  it into the site's /assets/images/ directory.
+- When providing multiple JSONs, --image is invalid. Each sidecar will use
+  the image found next to its JSON file and the CLI will copy those images
+  into the target site's assets directory.
+"""
+
 import argparse
 import os
 from datetime import date, datetime
@@ -10,27 +43,7 @@ from ..post.blog_post_builder import (
 
 
 def main(argv: Optional[List[str]] = None) -> None:
-    """CLI entrypoint for building a Jekyll blog post from one or more image sidecar JSON files.
-
-    This CLI supports a single JSON (backward compatible) or multiple JSONs /
-    directories containing JSON files. When multiple sidecars are provided they
-    are combined into a single post: the title from the first sidecar is used
-    as the post title, a single H1 is written at the top of the body, and each
-    sidecar is rendered under its own H2 section. Internal subsections use
-    H3 headings.
-
-    Note on images:
-    - For a single JSON you may pass --image to explicitly set the web path
-      used in the front matter and body (e.g. /assets/images/foo.jpg). If
-      omitted the tool will look for an image file next to the JSON and copy
-      it into the site's /assets/images/ directory.
-    - When providing multiple JSONs, --image is invalid. Each sidecar will use
-      the image found next to its JSON file and the CLI will copy those images
-      into the target site's assets directory.
-
-    Parameters:
-    - argv: optional list of arguments for testing; if None, argparse reads from sys.argv.
-    """
+    """CLI entrypoint for building a Jekyll blog post from one or more image sidecar JSON files."""
     parser = argparse.ArgumentParser(
         description=(
             "Build a Jekyll blog post Markdown file from one or more image metadata "
@@ -42,7 +55,7 @@ def main(argv: Optional[List[str]] = None) -> None:
         "json_path",
         nargs="+",
         help=(
-            "One or more metadata JSON files or directories containing JSON files. "
+            "One or more metadata JSON files or directories containing JSON files (absolute paths). "
             "Directories are scanned non-recursively for .json files."
         ),
     )
@@ -57,7 +70,7 @@ def main(argv: Optional[List[str]] = None) -> None:
         "--out-root",
         required=True,
         help=(
-            "Root of the GitHub Pages repo (e.g. /home/junwin/src/repos/junwin.github.io). "
+            "Root of the GitHub Pages repo (absolute path, e.g. /home/junwin/src/repos/junwin.github.io). "
             "The post will be written under _posts/."
         ),
     )
@@ -75,6 +88,14 @@ def main(argv: Optional[List[str]] = None) -> None:
         nargs="*",
         default=[],
         help="Optional list of categories for the post.",
+    )
+    parser.add_argument(
+        "--subtitle",
+        default=None,
+        help=(
+            "Evocative hook that appears as the first ## heading in the body. "
+            "Defaults to the first sidecar's original_description if omitted."
+        ),
     )
 
     args = parser.parse_args(argv)
@@ -104,9 +125,15 @@ def main(argv: Optional[List[str]] = None) -> None:
     if len(json_paths) > 1 and args.image:
         raise SystemExit("--image may not be used when providing multiple JSON sidecars")
 
-    out_path = build_post_from_json_paths(json_paths, out_root, date_str, args.image, args.categories)
+    out_path = build_post_from_json_paths(
+        json_paths=json_paths,
+        out_root=out_root,
+        date_str=date_str,
+        explicit_image=args.image,
+        categories=args.categories,
+        subtitle=args.subtitle,
+    )
 
-    # Mirror previous behavior: print the path to the written file
     print(f"Wrote blog post to {out_path}")
 
 
