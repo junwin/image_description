@@ -8,7 +8,7 @@ from ..sidecar import Sidecar
 
 
 PROMPT_TEMPLATE = """Act as a thoughtful artist and writer. Prepare a Mastodon, tumblr and bsky post for a new photograph I've taken.
-please include suggested hashtags (5 or 6) and text for the visually challenged.
+please include suggested hashtags (5 or 6) and text for image description.
 
 Consider John Berger's separation of a) what the image is  b) what is it trying to say  - I would like to swing the balance to what the image is trying to say.
 
@@ -17,7 +17,7 @@ Here is some metadata I already have  - this typically deals with what the image
 Title: {title}
 Original description: {original_description}
 Enhanced description: {enhanced_description}
-Visually challenged description: {visually_challenged_description}
+Image description: {image_description}
 Keywords: {keywords}
 Existing hashtags: {hashtags}
 
@@ -36,7 +36,7 @@ def build_prompt(meta: Dict[str, Any]) -> str:
     title = meta.get("title") or meta.get("original_title") or ""
     original_description = meta.get("original_description", "")
     enhanced_description = meta.get("enhanced_description", "")
-    visually_challenged_description = meta.get("visually_challenged_description", "")
+    image_description = meta.get("image_description", "")
     keywords = meta.get("keywords", [])
     if isinstance(keywords, list):
         keywords_str = ", ".join(keywords)
@@ -48,7 +48,7 @@ def build_prompt(meta: Dict[str, Any]) -> str:
         title=title,
         original_description=original_description,
         enhanced_description=enhanced_description,
-        visually_challenged_description=visually_challenged_description,
+        image_description=image_description,
         keywords=keywords_str,
         hashtags=hashtags,
     )
@@ -68,8 +68,8 @@ def prompt_from_sidecar_path(json_path: str) -> str:
 def _yaml_escape(s: str) -> str:
     if any(c in s for c in [":", "-", "#", "{", "}", "[", "]", ",", "&", "*", "?", "|", ">", "%", "@", "`", '"', "'"]):
         return '"' + s.replace('"', '\\"') + '"'
-    if "\n" in s:
-        return "|-\n  " + s.replace("\n", "\n  ")
+    if "\\n" in s:
+        return "|-\\n  " + s.replace("\\n", "\\n  ")
     return s
 
 
@@ -90,7 +90,7 @@ def _markdown_for_meta(
     original_title = meta.get("original_title", "")
     original_description = meta.get("original_description", "")
     enhanced_description = meta.get("enhanced_description", "")
-    visually_challenged_description = meta.get("visually_challenged_description", "")
+    image_description = meta.get("image_description", "")
     keywords = meta.get("keywords", [])
     hashtags = meta.get("hashtags", "")
 
@@ -123,9 +123,9 @@ def _markdown_for_meta(
         lines.append(enhanced_description)
         lines.append("")
 
-    if visually_challenged_description:
-        lines.append(f"{('#' * sub_h)} Description for the visually challenged")
-        lines.append(visually_challenged_description)
+    if image_description:
+        lines.append(f"{('#' * sub_h)} Image description")
+        lines.append(image_description)
         lines.append("")
 
     if keywords:
@@ -166,7 +166,7 @@ def _yaml_for_meta(meta: Dict[str, Any], image_path: Optional[str], include_prom
     for key in [
         "original_title",
         "original_description",
-        "visually_challenged_description",
+        "image_description",
         "enhanced_description",
         "hashtags",
     ]:

@@ -17,7 +17,7 @@ class Sidecar:
     original_title: str = ""
     original_description: str = ""
     title: str = ""
-    visually_challenged_description: str = ""
+    image_description: str = ""
     enhanced_description: str = ""
     keywords: List[str] = field(default_factory=list)
     hashtags: str = ""
@@ -29,6 +29,9 @@ class Sidecar:
     image_filename: str = ""
     image_relative_path: str = ""
 
+    # EXIF capture date (DateTimeOriginal, with CreateDate fallback).
+    capture_datetime: str = ""
+
     extra: Dict[str, Any] = field(default_factory=dict)
 
     @classmethod
@@ -37,13 +40,15 @@ class Sidecar:
             "original_title",
             "original_description",
             "title",
-            "visually_challenged_description",
+            "image_description",
+            "visually_challenged_description",  # legacy key for backward-compat reads
             "enhanced_description",
             "keywords",
             "hashtags",
             "social_caption",
             "image_filename",
             "image_relative_path",
+            "capture_datetime",
         }
 
         keywords = data.get("keywords", [])
@@ -53,19 +58,23 @@ class Sidecar:
 
         extra = {k: v for k, v in data.items() if k not in known_keys}
 
+        # Read image_description: prefer the new key, fall back to legacy key
+        img_desc = str(data.get("image_description", "") or "")
+        if not img_desc:
+            img_desc = str(data.get("visually_challenged_description", "") or "")
+
         return cls(
             original_title=str(data.get("original_title", "") or ""),
             original_description=str(data.get("original_description", "") or ""),
             title=str(data.get("title", "") or ""),
-            visually_challenged_description=str(
-                data.get("visually_challenged_description", "") or ""
-            ),
+            image_description=img_desc,
             enhanced_description=str(data.get("enhanced_description", "") or ""),
             keywords=keywords,
             hashtags=str(data.get("hashtags", "") or ""),
             social_caption=str(data.get("social_caption", "") or ""),
             image_filename=str(data.get("image_filename", "") or ""),
             image_relative_path=str(data.get("image_relative_path", "") or ""),
+            capture_datetime=str(data.get("capture_datetime", "") or ""),
             extra=extra,
         )
 
@@ -74,16 +83,27 @@ class Sidecar:
             "original_title": self.original_title,
             "original_description": self.original_description,
             "title": self.title,
-            "visually_challenged_description": self.visually_challenged_description,
+            "image_description": self.image_description,
             "enhanced_description": self.enhanced_description,
             "keywords": list(self.keywords),
             "hashtags": self.hashtags,
             "social_caption": self.social_caption,
             "image_filename": self.image_filename,
             "image_relative_path": self.image_relative_path,
+            "capture_datetime": self.capture_datetime,
         }
         data.update(self.extra)
         return data
+
+    # Backward-compat property: code that still reads .visually_challenged_description
+    # gets the value from .image_description.
+    @property
+    def visually_challenged_description(self) -> str:
+        return self.image_description
+
+    @visually_challenged_description.setter
+    def visually_challenged_description(self, value: str) -> None:
+        self.image_description = value
 
     @classmethod
     def load(cls, json_path: str) -> "Sidecar":

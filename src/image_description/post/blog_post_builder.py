@@ -98,11 +98,17 @@ def _collect_all_hashtags(metas: List[Dict[str, Any]]) -> List[str]:
     return tags
 
 
+def _clean_hashtags(raw: str) -> str:
+    """Strip leading '#' from each tag and return a space-separated string."""
+    return " ".join(chunk.lstrip("#") for chunk in raw.split())
+
+
 def build_front_matter(
     metas: List[Dict[str, Any]],
     date_str: str,
     image_web_path: Optional[str],
     categories: List[str],
+    title: Optional[str] = None,
 ) -> str:
     """Build the Jekyll front matter YAML block from one or more sidecar metas.
 
@@ -110,8 +116,10 @@ def build_front_matter(
     - date_str: date in YYYY-MM-DD or a full timestamp
     - image_web_path: optional web path to the lead image (e.g. /assets/images/foo.jpg)
     - categories: list of categories
+    - title: optional override for the post title. When provided it is used as-is
+      (not lowercased). When omitted, the title comes from the first sidecar and is
+      lowercased.
 
-    Title comes from the first sidecar and is lowercased.
     Tags are the deduplicated union of hashtags from ALL sidecars (stripped of '#').
 
     Timezone policy:
@@ -123,7 +131,10 @@ def build_front_matter(
         return "---\n---\n"
 
     first = metas[0]
-    title = (first.get("title") or first.get("original_title") or "Untitled").strip().lower()
+    if title is not None:
+        resolved_title = title.strip()
+    else:
+        resolved_title = (first.get("title") or first.get("original_title") or "Untitled").strip().lower()
     tags = _collect_all_hashtags(metas)
 
     enhanced_description = first.get("enhanced_description", "")
@@ -145,7 +156,7 @@ def build_front_matter(
     lines: List[str] = []
     lines.append("---")
     lines.append("layout: post")
-    lines.append(f"title: \"{title}\"")
+    lines.append(f'title: "{resolved_title}"')
     lines.append(f"date: {date_out}")
 
     if categories:
@@ -176,12 +187,12 @@ def build_body_single(meta: Dict[str, Any], image_web_path: Optional[str], subti
       ## {section_title}   ← per-image heading
       ![...](...)
       ### Original notes
-      ### Description for the visually challenged
+      ### Image description
       ### Hashtags
     """
     section_title = (meta.get("title") or meta.get("original_title") or "Untitled").strip().lower()
     original_description = meta.get("original_description", "")
-    visually_challenged_description = meta.get("visually_challenged_description", "")
+    image_description = meta.get("image_description", "")
     hashtags = meta.get("hashtags", "")
 
     lines: List[str] = []
@@ -203,14 +214,15 @@ def build_body_single(meta: Dict[str, Any], image_web_path: Optional[str], subti
         lines.append(original_description)
         lines.append("")
 
-    if visually_challenged_description:
-        lines.append("### Description for the visually challenged")
-        lines.append(visually_challenged_description)
+    if image_description:
+        lines.append("### Image description")
+        lines.append(image_description)
         lines.append("")
 
     if hashtags:
+        clean_tags = _clean_hashtags(str(hashtags))
         lines.append("### Hashtags")
-        lines.append(str(hashtags))
+        lines.append(clean_tags)
         lines.append("")
 
     return "\n".join(lines).rstrip() + "\n"
@@ -228,7 +240,7 @@ def build_body_multiple(
       ## {section_title_1}    ← per-image heading
       ![...](...)
       ### Original notes
-      ### Description for the visually challenged
+      ### Image description
       ### Hashtags
       ...repeated for each sidecar...
     """
@@ -260,7 +272,7 @@ def build_body_multiple(
             lines.append("")
 
         original_description = meta.get("original_description", "")
-        visually_challenged_description = meta.get("visually_challenged_description", "")
+        image_description = meta.get("image_description", "")
         hashtags = meta.get("hashtags", "")
 
         if original_description:
@@ -268,14 +280,15 @@ def build_body_multiple(
             lines.append(original_description)
             lines.append("")
 
-        if visually_challenged_description:
-            lines.append("### Description for the visually challenged")
-            lines.append(visually_challenged_description)
+        if image_description:
+            lines.append("### Image description")
+            lines.append(image_description)
             lines.append("")
 
         if hashtags:
+            clean_tags = _clean_hashtags(str(hashtags))
             lines.append("### Hashtags")
-            lines.append(str(hashtags))
+            lines.append(clean_tags)
             lines.append("")
 
     return "\n".join(lines).rstrip() + "\n"
@@ -288,6 +301,7 @@ def build_post_from_json_paths(
     explicit_image: Optional[str],
     categories: List[str],
     subtitle: Optional[str] = None,
+    title: Optional[str] = None,
 ) -> str:
     """Build a Jekyll blog post Markdown file from one or more image metadata JSON files.
 
@@ -296,6 +310,8 @@ def build_post_from_json_paths(
     - If multiple files, they are combined into one post.
     - Tags in frontmatter are the deduplicated union of all per-image hashtags.
     - Subtitle defaults to the first sidecar's original_description if not provided.
+    - Title overrides the post title in front matter. The slug is also derived from
+      the title when provided. When omitted, the title comes from the first sidecar.
 
     Returns the path to the written Markdown file.
     """
@@ -324,11 +340,11 @@ def build_post_from_json_paths(
 
         copy_image_to_repo(json_path, out_root, image_web_path)
 
-        front_matter = build_front_matter(metas, date_str, image_web_path, categories)
+        front_matter = build_front_matter(metas, date_str, image_web_path, categories, title=title)
         body = build_body_single(metas[0], image_web_path, subtitle)
 
         base_name = os.path.splitext(os.path.basename(json_path))[0]
-        slug = base_name or "post"
+        slug = slugify(title) if title else base_name or "post"
 
     else:
         if explicit_image:
@@ -340,11 +356,14 @@ def build_post_from_json_paths(
             copy_image_to_repo(p, out_root, img)
 
         front_image = image_web_paths[0] if image_web_paths else None
-        front_matter = build_front_matter(metas, date_str, front_image, categories)
+        front_matter = build_front_matter(metas, date_str, front_image, categories, title=title)
         body = build_body_multiple(metas, image_web_paths, subtitle)
 
-        base_name = os.path.splitext(os.path.basename(json_paths[0]))[0]
-        slug = base_name or "post"
+        if title:
+            slug = slugify(title)
+        else:
+            base_name = os.path.splitext(os.path.basename(json_paths[0]))[0]
+            slug = base_name or "post"
 
     # Write output
     posts_dir = os.path.join(out_root, "_posts")
@@ -400,7 +419,7 @@ def main(argv: Optional[List[str]] = None) -> None:
     Usage:
       python -m image_description.post.blog_post_builder <json-or-dir> [<json-or-dir> ...] \\
           --out-root /path/to/site [--date YYYY-MM-DD] [--image /assets/images/foo.jpg] \\
-          [--categories cat1 cat2] [--subtitle "evocative hook"]
+          [--categories cat1 cat2] [--subtitle "evocative hook"] [--title "Post Title"]
 
     Notes:
     - You may provide one or more JSON files or directories containing JSON files.
@@ -409,6 +428,7 @@ def main(argv: Optional[List[str]] = None) -> None:
       each JSON instead).
     - --subtitle sets the evocative hook that appears as the first ## heading
       in the body. Defaults to the first sidecar's original_description.
+    - --title overrides the post title. Defaults to the first sidecar's title.
     """
     parser = argparse.ArgumentParser(
         description=(
@@ -448,6 +468,11 @@ def main(argv: Optional[List[str]] = None) -> None:
         default=None,
         help="Evocative hook (## heading) that leads the post body. Defaults to original_description.",
     )
+    parser.add_argument(
+        "--title",
+        default=None,
+        help="Post title override. Defaults to the first sidecar's title (lowercased).",
+    )
 
     args = parser.parse_args(argv)
 
@@ -459,6 +484,7 @@ def main(argv: Optional[List[str]] = None) -> None:
         explicit_image=args.image,
         categories=args.categories,
         subtitle=args.subtitle,
+        title=args.title,
     )
     print("Wrote", out_path)
 

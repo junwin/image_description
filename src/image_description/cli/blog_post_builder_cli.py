@@ -13,6 +13,7 @@ Arguments:
     --categories: Optional list of categories for the post
     --subtitle: Evocative hook that appears as the first ## heading in the body.
                 Defaults to the first sidecar's original_description.
+    --title: Post title override. Defaults to the first sidecar's title (lowercased).
 
 This CLI supports a single JSON (backward compatible) or multiple JSONs /
 directories containing JSON files. When multiple sidecars are provided they
@@ -97,6 +98,11 @@ def main(argv: Optional[List[str]] = None) -> None:
             "Defaults to the first sidecar's original_description if omitted."
         ),
     )
+    parser.add_argument(
+        "--title",
+        default=None,
+        help="Post title override. Defaults to the first sidecar's title (lowercased).",
+    )
 
     args = parser.parse_args(argv)
 
@@ -132,6 +138,7 @@ def main(argv: Optional[List[str]] = None) -> None:
         explicit_image=args.image,
         categories=args.categories,
         subtitle=args.subtitle,
+        title=args.title,
     )
 
     print(f"Wrote blog post to {out_path}")

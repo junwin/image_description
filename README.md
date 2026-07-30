@@ -15,7 +15,7 @@ This repo is a small pipeline:
 The three main CLIs are:
 
 - **`image_cli`** – scans images, calls the OpenAI API, and writes JSON sidecar files; can also embed metadata back into the image files via `exiftool`.
-- **`post_builder_cli`** – reads one JSON sidecar and exports the metadata as **Markdown** or **YAML** (optionally including a “prompt for social post”).
+- **`post_builder_cli`** – reads one JSON sidecar and exports the metadata as **Markdown** or **YAML** (optionally including a "prompt for social post").
 - **`blog_post_builder_cli`** – reads one JSON sidecar and writes a **Jekyll** post into a GitHub Pages repo (`_posts/`), optionally copying the image into the repo under `/assets/...`.
 
 What it does *not* try to be:
@@ -82,7 +82,7 @@ The design is:
 
 ### 1.1 Python and virtual environment
 
-You’ll need Python 3.9+ installed.
+You'll need Python 3.9+ installed.
 
 From the project directory:
 
@@ -138,7 +138,7 @@ You can also override the key via the `OPENAI_API_KEY` environment variable if y
 
 The image tool reads and writes **IPTC metadata** (title/description/keywords) by calling the command-line tool **ExifTool**.
 
-Install it and make sure it’s on your `PATH`:
+Install it and make sure it's on your `PATH`:
 
 - **Ubuntu/Debian**:
 
@@ -220,7 +220,7 @@ The factual JSON sidecar (the core) includes objective fields such as:
   "original_title": "...",
   "original_description": "...",
   "title": "...",
-  "visually_challenged_description": "...",
+  "image_description": "...",
   "enhanced_description": "...",
   "keywords": ["...", "..."]
 }
@@ -250,7 +250,7 @@ If you request platform hashtags during the `describe` step, the CLI validates t
 Named prompt presets control how the model describes the image. Two presets are currently defined:
 
 - `orwell_basic` – simple, clear description and keywords.
-- `orwell_ways_of_seeing` – inspired by John Berger’s "Ways of Seeing", with a focus on what the image is trying to say.
+- `orwell_ways_of_seeing` – inspired by John Berger's "Ways of Seeing", with a focus on what the image is trying to say.
 
 Choose a preset with `--preset`:
 
@@ -271,7 +271,7 @@ This will create `/path/to/images/2A9A8326.json` (and `2A9A8326.social.json` if 
 
 ### 2.5 Embed metadata back into images
 
-Once you’re happy with the JSON sidecars, you can write the metadata back into the image files using `embed`:
+Once you're happy with the JSON sidecars, you can write the metadata back into the image files using `embed`:
 
 ```bash
 python -m src.image_description.cli.image_cli embed /path/to/images
@@ -342,7 +342,7 @@ python -m src.image_description.cli.blog_post_builder_cli \
 
 Important detail (matches the current code):
 
-- The **output filename** always uses **today’s date**, not `--date`:
+- The **output filename** always uses **today's date**, not `--date`:
 - `<out-root>/_posts/<TODAY>-<json_basename>.md`
 
 ---
