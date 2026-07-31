@@ -24,6 +24,9 @@ import urllib.error
 from typing import Any, Dict, List, Optional
 from pathlib import Path
 
+from ..sidecar import Sidecar
+from ..social_utils import build_social_text, build_alt_text
+
 CRED_PATH = "/home/junwin/credential/mastodon.json"
 
 
@@ -276,105 +279,6 @@ def _post_status(
 
 
 # ---------------------------------------------------------------------------
-#  hashtag processing
-# ---------------------------------------------------------------------------
-
-# Tags to remove from sidecar hashtags
-_REMOVE_TAGS = {"#places", "#genre"}
-
-# Tags to always prepend (deduplicated if already present)
-_ALWAYS_PREPEND = ["#photography", "#photo"]
-
-
-def _process_hashtags(raw_hashtags: str) -> str:
-    """Process hashtags from the sidecar.
-
-    1. Remove #places and #genre.
-    2. Prepend #photography and #photo (deduped).
-    """
-    # Split into individual tags, stripping whitespace and empty strings
-    tags = [t.strip() for t in raw_hashtags.split() if t.strip()]
-
-    # 1. Remove unwanted tags
-    tags = [t for t in tags if t not in _REMOVE_TAGS]
-
-    # 2. Prepend always-tags, deduping
-    result: List[str] = []
-    for prepend_tag in _ALWAYS_PREPEND:
-        if prepend_tag in tags:
-            tags.remove(prepend_tag)
-        result.append(prepend_tag)
-    result.extend(tags)
-
-    return " ".join(result)
-
-
-# ---------------------------------------------------------------------------
-#  build status text
-# ---------------------------------------------------------------------------
-
-def _build_status_text(
-    sidecar: Dict[str, Any],
-    extra_text: Optional[str],
-    visibility: str,
-) -> str:
-    """Build the status text from sidecar data and optional extra text.
-
-    Precedence for title: original_title > title.
-    Precedence for body: original_description > social_caption > enhanced_description.
-    """
-    parts: List[str] = []
-
-    # Title: prefer original_title, fall back to title
-    title = (sidecar.get("original_title") or sidecar.get("title") or "").strip()
-    if title:
-        parts.append(title)
-
-    # Body: prefer original_description, then social_caption, then enhanced_description
-    body_text = (
-        sidecar.get("original_description")
-        or sidecar.get("social_caption")
-        or sidecar.get("enhanced_description")
-        or ""
-    ).strip()
-    if body_text:
-        parts.append(body_text)
-
-    # Extra user text
-    if extra_text:
-        parts.append(extra_text.strip())
-
-    # Hashtags (processed: remove places/genre, prepend photography/photo)
-    hashtags = (sidecar.get("hashtags") or "").strip()
-    if hashtags:
-        parts.append(_process_hashtags(hashtags))
-
-    status_text = "\n\n".join(parts)
-
-    # Mastodon has a 500-char limit
-    if len(status_text) > 500:
-        sys.stderr.write(
-            f"Warning: status text is {len(status_text)} chars (limit: 500). "
-            "It will be truncated.\n"
-        )
-        status_text = status_text[:497] + "..."
-
-    return status_text
-
-
-def _build_alt_text(sidecar: Dict[str, Any]) -> str:
-    """Build alt text from the sidecar. Prefers image_description."""
-    desc = (sidecar.get("image_description") or "").strip()
-    if not desc:
-        # Fallback to title
-        desc = (sidecar.get("title") or "").strip()
-    # Mastodon alt text limit is 1500 chars
-    if len(desc) > 1500:
-        desc = desc[:1497] + "..."
-    return desc
-
-
-# ---------------------------------------------------------------------------
 #  display helpers for list
 # ---------------------------------------------------------------------------
 
@@ -514,6 +418,7 @@ def cmd_post(
     visibility: str = "public",
     dry_run: bool = False,
     code: Optional[str] = None,
+    caption_field: str = "social_caption",
 ) -> None:
     """Post an image to Mastodon.
 
@@ -521,6 +426,7 @@ def cmd_post(
     2. Build alt text and status text from the sidecar.
     3. Upload the image to Mastodon.
     4. Post a status with the image attached.
+    5. Write publish info back to the sidecar.
     """
     token = _get_token(code=code)
     creds = _load_creds()
@@ -541,16 +447,22 @@ def cmd_post(
 
     sidecar = _load_sidecar(sidecar_path)
 
-    alt_text = _build_alt_text(sidecar)
-    status_text = _build_status_text(sidecar, text, visibility)
+    alt_text = build_alt_text(sidecar)
+    status_text = build_social_text(
+        sidecar,
+        caption_field=caption_field,
+        extra_text=text,
+        char_limit=500,
+    )
 
     if dry_run:
         print("=" * 60)
-        print(f"Instance:   {instance}")
-        print(f"Visibility: {visibility}")
-        print(f"Image:      {image_path}")
-        print(f"Sidecar:    {sidecar_path}")
-        print(f"Alt text:   {alt_text[:200]}{'...' if len(alt_text) > 200 else ''}")
+        print(f"Instance:      {instance}")
+        print(f"Visibility:    {visibility}")
+        print(f"Caption field: {caption_field}")
+        print(f"Image:         {image_path}")
+        print(f"Sidecar:       {sidecar_path}")
+        print(f"Alt text:      {alt_text[:200]}{'...' if len(alt_text) > 200 else ''}")
         print("-" * 60)
         print("Status text:")
         print(status_text)
@@ -570,6 +482,15 @@ def cmd_post(
     print(f"Posted! ID={post_id}")
     if post_url:
         print(f"URL: {post_url}")
+
+    # Write publish info back to sidecar
+    try:
+        sidecar_obj = Sidecar.load(sidecar_path)
+        sidecar_obj.add_publish_event("mastodon", str(post_id), post_url)
+        sidecar_obj.save(sidecar_path)
+        print(f"Sidecar updated: {sidecar_path}")
+    except Exception as e:
+        sys.stderr.write(f"Warning: could not update sidecar: {e}\n")
 
 
 # ---------------------------------------------------------------------------
@@ -604,7 +525,7 @@ def main(argv: Optional[List[str]] = None) -> None:
     p_del.add_argument("post_id", help="ID of the post to delete")
     p_del.add_argument("--code", default=None, help="OAuth authorization code")
 
-    # post <PATH> [--text <TEXT>] [--visibility <VIS>] [--dry-run] [--code <CODE>]
+    # post <PATH> [--text <TEXT>] [--visibility <VIS>] [--dry-run] [--code <CODE>] [--caption-field <FIELD>]
     p_post = sub.add_parser("post", help="Post an image to Mastodon")
     p_post.add_argument("path", help="Path to the image file")
     p_post.add_argument(
@@ -628,6 +549,11 @@ def main(argv: Optional[List[str]] = None) -> None:
         default=None,
         help="OAuth authorization code (optional).",
     )
+    p_post.add_argument(
+        "--caption-field",
+        default="social_caption",
+        help="Sidecar field to use for the post caption (default: social_caption).",
+    )
 
     args = parser.parse_args(argv)
 
@@ -646,6 +572,7 @@ def main(argv: Optional[List[str]] = None) -> None:
             visibility=args.visibility,
             dry_run=args.dry_run,
             code=args.code,
+            caption_field=args.caption_field,
         )
     else:
         parser.print_help()

@@ -8,6 +8,7 @@ Subcommands:
     auth-code <CODE>  Exchange authorization code for access token
     post <IMAGE>      Upload image + post status using sidecar JSON
     list              List your recent posts
+    get <ID>          Get full detail for a single post
     delete <ID>       Delete a post by ID
 
 Credential file: /home/junwin/credential/pixelfed.json
@@ -19,11 +20,12 @@ import json
 import os
 import sys
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 import requests
 
 from ..sidecar import Sidecar
+from ..social_utils import build_social_text, build_alt_text
 
 CRED_PATH = "/home/junwin/credential/pixelfed.json"
 INSTANCE = "pixelfed.social"
@@ -79,85 +81,100 @@ def _get_token() -> str:
     return token
 
 
-# --- Hashtag processing ---
-
-REMOVE_TAGS = {"#places", "#genre"}
-PREPEND_TAGS = ["#photography", "#photo"]
-
-
-def _process_hashtags(raw: str) -> str:
-    """Apply hashtag rules: remove unwanted, deduplicate, prepend canonical tags."""
-    tags = [t.strip() for t in raw.split() if t.strip()]
-    # Remove unwanted
-    tags = [t for t in tags if t.lower() not in {r.lower() for r in REMOVE_TAGS}]
-    # Deduplicate while preserving order
-    seen = set()
-    deduped = []
-    for t in tags:
-        lower = t.lower()
-        if lower not in seen:
-            seen.add(lower)
-            deduped.append(t)
-    # Prepend canonical tags (skip if already present)
-    result = []
-    for pt in PREPEND_TAGS:
-        if pt.lower() not in seen:
-            result.append(pt)
-            seen.add(pt.lower())
-    result.extend(deduped)
-    return " ".join(result)
+def _headers(token: str) -> dict:
+    return {"Authorization": f"Bearer {token}"}
 
 
 # --- Sidecar loading ---
 
-def _find_sidecar(image_path: str) -> Optional[Sidecar]:
-    """Find sidecar JSON for an image: .json or .social.json sibling."""
+def _find_sidecar(image_path: str) -> Tuple[Optional[Sidecar], Optional[str]]:
+    """Find sidecar JSON for an image: .json or .social.json sibling.
+
+    Returns (Sidecar, path) tuple, or (None, None) if not found.
+    """
     base = Path(image_path)
     # Try .json first
     json_path = base.with_suffix(".json")
     if json_path.exists():
-        return Sidecar.load(str(json_path))
+        return Sidecar.load(str(json_path)), str(json_path)
     # Try .social.json
     social_path = base.with_suffix(".social.json")
     if social_path.exists():
-        return Sidecar.load(str(social_path))
+        return Sidecar.load(str(social_path)), str(social_path)
     # Try stem-based (for files like image.jpg → image.json)
     stem_json = base.parent / f"{base.stem}.json"
     if stem_json.exists():
-        return Sidecar.load(str(stem_json))
-    return None
+        return Sidecar.load(str(stem_json)), str(stem_json)
+    return None, None
 
 
-def _build_status(sidecar: Sidecar) -> str:
-    """Build the status text from sidecar fields."""
-    # Title line
-    title = sidecar.title or sidecar.original_title or ""
-    # Caption: prefer social_caption, then enhanced_description, then original_description
-    social_caption = sidecar.extra.get("social_caption", "")
-    description = social_caption or sidecar.enhanced_description or sidecar.original_description or ""
+# --- Helpers for display ---
 
-    # Process hashtags
-    hashtags = _process_hashtags(sidecar.hashtags)
-
-    lines = []
-    if title:
-        lines.append(title)
-    if description and description != title:
-        lines.append("")
-        lines.append(description)
-    if hashtags:
-        lines.append("")
-        lines.append(hashtags)
-
-    return "\n".join(lines).strip()
+def _strip_html(text: str) -> str:
+    """Strip basic HTML tags from status content."""
+    import re
+    return re.sub(r"<[^>]+>", "", text)
 
 
-def _get_alt_text(sidecar: Sidecar) -> str:
-    """Get alt text from sidecar (image_description or visually_challenged_description)."""
-    image_desc = sidecar.extra.get("image_description", "")
-    if image_desc:
-        return image_desc
-    return sidecar.visually_challenged_description or ""
+def _counts_str(post: dict) -> str:
+    """Build a compact counts string: ❤N ↩N 💬N"""
+    fav = post.get("favourites_count", 0)
+    reblog = post.get("reblogs_count", 0)
+    replies = post.get("replies_count", 0)
+    return f"❤{fav} ↩{reblog} 💬{replies}"
+
+
+def _print_post_detail(post: dict) -> None:
+    """Print full detail for a single post."""
+    pid = post.get("id", "")
+    created = post.get("created_at", "")[:19]
+    url = post.get("url", "")
+    visibility = post.get("visibility", "")
+    sensitive = post.get("sensitive", False)
+    spoiler = post.get("spoiler_text", "")
+    content = _strip_html(post.get("content", ""))
+
+    print(f"ID:         {pid}")
+    print(f"Date:       {created}")
+    print(f"URL:        {url}")
+    print(f"Visibility: {visibility}")
+    print(f"Counts:     {_counts_str(post)}")
+    if sensitive:
+        print(f"Sensitive:  True")
+    if spoiler:
+        print(f"CW:         {spoiler}")
+    print()
+
+    # Content
+    print("Content:")
+    print(content or "(empty)")
+    print()
+
+    # Media attachments
+    media = post.get("media_attachments", [])
+    if media:
+        print(f"Media ({len(media)}):")
+        for i, m in enumerate(media):
+            print(f"  [{i+1}] ID: {m.get('id')}  Type: {m.get('type', 'unknown')}")
+            print(f"      URL: {m.get('url', '')}")
+            desc = m.get("description")
+            if desc:
+                print(f"      Alt: {desc}")
+        print()
+
+    # Tags
+    tags = post.get("tags", [])
+    if tags:
+        print("Tags:")
+        for t in tags:
+            print(f"  {t.get('name', '')}")
+        print()
+
+    # Application
+    app = post.get("application", {})
+    if app:
+        print(f"App:   {app.get('name', 'N/A')}")
+    print()
 
 
 # --- Subcommands ---
@@ -196,8 +213,12 @@ def cmd_auth_code(code: str) -> None:
     print("Access token saved.")
 
 
-def cmd_post(image_path: str, dry_run: bool = False) -> None:
-    """Upload an image and post to Pixelfed."""
+def cmd_post(image_path: str, dry_run: bool = False, caption_field: str = "social_caption") -> None:
+    """Upload an image and post to Pixelfed.
+
+    After a successful post, writes publish info (platform, post_id, url, date)
+    back to the sidecar JSON.
+    """
     token = _get_token()
 
     # Resolve image
@@ -207,17 +228,21 @@ def cmd_post(image_path: str, dry_run: bool = False) -> None:
         sys.exit(1)
 
     # Load sidecar
-    sidecar = _find_sidecar(str(img))
+    sidecar, sidecar_path = _find_sidecar(str(img))
     if sidecar is None:
         print(f"No sidecar JSON found for: {image_path}", file=sys.stderr)
         sys.exit(1)
 
-    status = _build_status(sidecar)
-    alt_text = _get_alt_text(sidecar)
+    # Convert Sidecar to dict for shared utils
+    sidecar_data = sidecar.to_dict()
+
+    status = build_social_text(sidecar_data, caption_field=caption_field)
+    alt_text = build_alt_text(sidecar_data)
 
     if dry_run:
         print("=== DRY RUN ===")
         print(f"Image: {img}")
+        print(f"Caption field: {caption_field}")
         print(f"Alt text: {alt_text}")
         print(f"Status:\n{status}")
         print("=== End dry run ===")
@@ -249,18 +274,29 @@ def cmd_post(image_path: str, dry_run: bool = False) -> None:
     )
     if status_resp.status_code == 200:
         result = status_resp.json()
-        print(f"Posted! ID: {result['id']}, URL: {result.get('url', 'N/A')}")
+        post_id = str(result["id"])
+        post_url = result.get("url", "")
+        print(f"Posted! ID: {post_id}, URL: {post_url}")
+
+        # Write publish info back to sidecar
+        if sidecar_path:
+            try:
+                sidecar.add_publish_event("pixelfed", post_id, post_url)
+                sidecar.save(sidecar_path)
+                print(f"Sidecar updated: {sidecar_path}")
+            except Exception as e:
+                print(f"Warning: could not update sidecar: {e}", file=sys.stderr)
     else:
         print(f"Post failed: {status_resp.status_code} {status_resp.text}", file=sys.stderr)
         sys.exit(1)
 
 
-def cmd_list() -> None:
+def cmd_list(limit: int = 20) -> None:
     """List recent posts."""
     token = _get_token()
     resp = requests.get(
         f"{API_BASE}/api/v1/accounts/verify_credentials",
-        headers={"Authorization": f"Bearer {token}"},
+        headers=_headers(token),
     )
     if resp.status_code != 200:
         print(f"Failed to get account: {resp.status_code} {resp.text}", file=sys.stderr)
@@ -269,8 +305,8 @@ def cmd_list() -> None:
 
     resp = requests.get(
         f"{API_BASE}/api/v1/accounts/{account_id}/statuses",
-        headers={"Authorization": f"Bearer {token}"},
-        params={"limit": 20},
+        headers=_headers(token),
+        params={"limit": limit},
     )
     if resp.status_code != 200:
         print(f"Failed to list posts: {resp.status_code} {resp.text}", file=sys.stderr)
@@ -284,11 +320,30 @@ def cmd_list() -> None:
     for p in posts:
         created = p.get("created_at", "")[:19]
         pid = p["id"]
-        content = p.get("content", "")[:80].replace("\n", " ")
+        content = _strip_html(p.get("content", ""))[:80].replace("\n", " ")
         url = p.get("url", "")
-        print(f"ID: {pid}  Date: {created}  URL: {url}")
+        counts = _counts_str(p)
+        print(f"ID: {pid}  {counts}  Date: {created}")
         print(f"  {content}...")
+        print(f"  {url}")
         print()
+
+    print(f"{len(posts)} post(s) shown.")
+
+
+def cmd_get(post_id: str) -> None:
+    """Fetch full detail for a single post."""
+    token = _get_token()
+    resp = requests.get(
+        f"{API_BASE}/api/v1/statuses/{post_id}",
+        headers=_headers(token),
+    )
+    if resp.status_code != 200:
+        print(f"Failed to get post {post_id}: {resp.status_code} {resp.text}", file=sys.stderr)
+        sys.exit(1)
+
+    post = resp.json()
+    _print_post_detail(post)
 
 
 def cmd_delete(post_id: str) -> None:
@@ -296,7 +351,7 @@ def cmd_delete(post_id: str) -> None:
     token = _get_token()
     resp = requests.delete(
         f"{API_BASE}/api/v1/statuses/{post_id}",
-        headers={"Authorization": f"Bearer {token}"},
+        headers=_headers(token),
     )
     if resp.status_code == 200:
         print(f"Deleted post {post_id}.")
@@ -324,9 +379,24 @@ def main(argv: Optional[List[str]] = None) -> None:
     p_post = sub.add_parser("post", help="Upload image and post status")
     p_post.add_argument("image", help="Path to image file")
     p_post.add_argument("--dry-run", action="store_true", help="Preview without posting")
+    p_post.add_argument(
+        "--caption-field",
+        default="social_caption",
+        help="Sidecar field to use for the post caption (default: social_caption).",
+    )
 
     # list
-    sub.add_parser("list", help="List recent posts")
+    p_list = sub.add_parser("list", help="List recent posts")
+    p_list.add_argument(
+        "--limit",
+        type=int,
+        default=20,
+        help="Number of posts to list (default: 20).",
+    )
+
+    # get
+    p_get = sub.add_parser("get", help="Get full detail for a single post")
+    p_get.add_argument("post_id", help="Post ID to fetch")
 
     # delete
     p_delete = sub.add_parser("delete", help="Delete a post by ID")
@@ -339,9 +409,11 @@ def main(argv: Optional[List[str]] = None) -> None:
     elif args.command == "auth-code":
         cmd_auth_code(args.code)
     elif args.command == "post":
-        cmd_post(args.image, dry_run=args.dry_run)
+        cmd_post(args.image, dry_run=args.dry_run, caption_field=args.caption_field)
     elif args.command == "list":
-        cmd_list()
+        cmd_list(limit=args.limit)
+    elif args.command == "get":
+        cmd_get(args.post_id)
     elif args.command == "delete":
         cmd_delete(args.post_id)
 

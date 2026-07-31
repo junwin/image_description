@@ -2,6 +2,7 @@ import json
 import os
 import sys
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 
@@ -32,6 +33,9 @@ class Sidecar:
     # EXIF capture date (DateTimeOriginal, with CreateDate fallback).
     capture_datetime: str = ""
 
+    # Publish history: list of {platform, post_id, url, date} records.
+    publish_history: List[Dict[str, str]] = field(default_factory=list)
+
     extra: Dict[str, Any] = field(default_factory=dict)
 
     @classmethod
@@ -49,6 +53,7 @@ class Sidecar:
             "image_filename",
             "image_relative_path",
             "capture_datetime",
+            "publish_history",
         }
 
         keywords = data.get("keywords", [])
@@ -63,6 +68,11 @@ class Sidecar:
         if not img_desc:
             img_desc = str(data.get("visually_challenged_description", "") or "")
 
+        # Parse publish_history
+        publish_history = data.get("publish_history", [])
+        if not isinstance(publish_history, list):
+            publish_history = []
+
         return cls(
             original_title=str(data.get("original_title", "") or ""),
             original_description=str(data.get("original_description", "") or ""),
@@ -75,6 +85,7 @@ class Sidecar:
             image_filename=str(data.get("image_filename", "") or ""),
             image_relative_path=str(data.get("image_relative_path", "") or ""),
             capture_datetime=str(data.get("capture_datetime", "") or ""),
+            publish_history=publish_history,
             extra=extra,
         )
 
@@ -91,6 +102,7 @@ class Sidecar:
             "image_filename": self.image_filename,
             "image_relative_path": self.image_relative_path,
             "capture_datetime": self.capture_datetime,
+            "publish_history": list(self.publish_history),
         }
         data.update(self.extra)
         return data
@@ -163,6 +175,15 @@ class Sidecar:
         os.makedirs(os.path.dirname(os.path.abspath(json_path)) or ".", exist_ok=True)
         with open(json_path, "w", encoding="utf-8") as f:
             json.dump(self.to_dict(), f, indent=4)
+
+    def add_publish_event(self, platform: str, post_id: str, url: str = "") -> None:
+        """Record a publish event with timestamp."""
+        self.publish_history.append({
+            "platform": platform,
+            "post_id": post_id,
+            "url": url,
+            "date": datetime.now(timezone.utc).isoformat(),
+        })
 
     @staticmethod
     def social_path_for(sidecar_path: str) -> str:
