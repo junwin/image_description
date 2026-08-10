@@ -1,3 +1,10 @@
+Metadata-Version: 2.4
+Name: image_description
+Version: 0.0.0
+Summary: Image description helper tools
+Requires-Python: >=3.8
+Description-Content-Type: text/markdown
+
 # Image Description Tools
 
 This project helps you generate rich, consistent metadata for your photographs using OpenAI vision models, and then export that metadata into formats you can reuse (JSON sidecars, Markdown/YAML exports, and Jekyll blog posts).

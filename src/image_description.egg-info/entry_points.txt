@@ -1,0 +1,4 @@
+[console_scripts]
+blog-post-builder = image_description.cli.blog_post_builder_cli:main
+image = image_description.cli.image_cli:main
+post-builder = image_description.cli.post_builder_cli:main

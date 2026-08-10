@@ -10,6 +10,40 @@ def run_exiftool(args: List[str]) -> Tuple[int, str, str]:
     return proc.returncode, out, err
 
 
+def get_exif_date(file_path: str) -> str:
+    """Extract EXIF capture date from an image file.
+
+    Tries DateTimeOriginal first, falls back to CreateDate.
+    Returns empty string if neither is found or on any error.
+    """
+    code, out, err = run_exiftool(
+        [
+            "-EXIF:DateTimeOriginal",
+            "-EXIF:CreateDate",
+            file_path,
+        ]
+    )
+    if code != 0:
+        print(f"exiftool error reading EXIF dates from {file_path}: {err}")
+        return ""
+
+    date_original = ""
+    create_date = ""
+
+    for line in out.splitlines():
+        if ":" not in line:
+            continue
+        key, value = line.split(":", 1)
+        key = key.strip()
+        value = value.strip()
+        if "Date/Time Original" in key or "DateTimeOriginal" in key:
+            date_original = value
+        elif "Create Date" in key or "CreateDate" in key:
+            create_date = value
+
+    return date_original or create_date or ""
+
+
 def show_image_iptc_meta(file_path: str) -> Tuple[str, str, List[str]]:
     """Return (title, description, keywords) from IPTC using exiftool."""
     title = ""

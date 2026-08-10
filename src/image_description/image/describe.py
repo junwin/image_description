@@ -1,9 +1,9 @@
 import os
-from typing import List
+from typing import List, Optional
 
 from ..paths import is_image_file, iter_images, sidecar_path_for_image
 from ..sidecar import Sidecar
-from .iptc import show_image_iptc_meta, write_iptc_meta
+from .iptc import get_exif_date, show_image_iptc_meta, write_iptc_meta
 from .openai_client import generate_openai_description_and_keywords
 
 
@@ -29,11 +29,58 @@ def merge_keywords(existing: List[str], new: List[str]) -> List[str]:
 
 
 def build_hashtags(keywords: List[str]) -> str:
-    tags = ["#" + kw.replace(" ", "").lower() for kw in keywords]
+    """Build a space-separated hashtag string from keywords.
+
+    Notes:
+    - Keywords sometimes come back as a single comma-separated string
+      (e.g. "photography, photo, Nature"). We split those into individual tags.
+    - We normalize by lowercasing and removing spaces.
+    - We de-duplicate case-insensitively.
+    """
+
+    seen = set()
+    tags: List[str] = []
+
+    for kw in keywords:
+        if kw is None:
+            continue
+
+        # Split comma-separated keyword strings into individual tokens
+        parts = [p.strip() for p in str(kw).split(",")]
+        for part in parts:
+            if not part:
+                continue
+
+            normalized = part.replace(" ", "").lower()
+            if not normalized:
+                continue
+
+            if normalized not in seen:
+                seen.add(normalized)
+                tags.append("#" + normalized)
+
     return " ".join(tags)
 
 
-def process_image(image_path: str, preset: str) -> None:
+def process_image(
+    image_path: str,
+    preset: str,
+    overwrite: bool = False,
+    max_side: Optional[int] = None,
+) -> None:
+    """Process a single image and write a JSON sidecar.
+
+    If a sidecar already exists and overwrite is False, the image will be skipped
+    early (before any OpenAI calls) to avoid unnecessary network usage.
+
+    Args:
+        image_path: Path to the image file.
+        preset: Prompt preset name to use when calling the OpenAI client.
+        overwrite: If True, existing sidecar files will be overwritten. Default False.
+        max_side: If set, downscale image in-memory before sending to the API.
+                  Longest side will not exceed this many pixels. Original file
+                  is never modified.
+    """
     if not is_image_file(image_path):
         print(f"Skipping non-image file: {image_path}")
         return
@@ -45,16 +92,26 @@ def process_image(image_path: str, preset: str) -> None:
         )
         return
 
-    print(f"Processing {image_path} ({size_mb:.2f} MB)")
+    json_file_path = sidecar_path_for_image(image_path)
+    if os.path.exists(json_file_path) and not overwrite:
+        print(f"Skipping {image_path}: sidecar {json_file_path} already exists")
+        return
+
+    if max_side is not None:
+        print(f"Processing {image_path} ({size_mb:.2f} MB, max-side={max_side})")
+    else:
+        print(f"Processing {image_path} ({size_mb:.2f} MB)")
 
     existing_title, existing_description, existing_keywords = show_image_iptc_meta(image_path)
+    capture_datetime = get_exif_date(image_path)
 
-    vc_desc, enhanced_desc, new_keywords = generate_openai_description_and_keywords(
+    img_desc, enhanced_desc, social_caption, new_keywords = generate_openai_description_and_keywords(
         image_path,
         existing_title,
         existing_description,
         existing_keywords,
         preset=preset,
+        max_side=max_side,
     )
 
     merged_keywords = merge_keywords(existing_keywords, new_keywords)
@@ -64,21 +121,36 @@ def process_image(image_path: str, preset: str) -> None:
         original_title=existing_title,
         original_description=existing_description,
         title=existing_title,
-        visually_challenged_description=vc_desc,
+        image_description=img_desc,
         enhanced_description=enhanced_desc,
         keywords=merged_keywords,
         hashtags=hashtags,
+        social_caption=social_caption,
+        capture_datetime=capture_datetime,
     )
 
-    json_file_path = sidecar_path_for_image(image_path)
     sidecar.save(json_file_path)
     print(f"Wrote metadata to {json_file_path}")
 
 
-def process_directory(directory: str, preset: str) -> None:
+def process_directory(
+    directory: str,
+    preset: str,
+    overwrite: bool = False,
+    max_side: Optional[int] = None,
+) -> None:
+    """Process all images in a directory.
+
+    Args:
+        directory: Directory to search for images.
+        preset: Prompt preset name to pass to process_image.
+        overwrite: If True, existing sidecar files will be overwritten. Default False.
+        max_side: If set, downscale images in-memory before sending to the API.
+                  Original files are never modified.
+    """
     for path in iter_images(directory):
         try:
-            process_image(path, preset=preset)
+            process_image(path, preset=preset, overwrite=overwrite, max_side=max_side)
         except Exception as e:  # noqa: BLE001
             print(f"Error processing {path}: {e}")
 
