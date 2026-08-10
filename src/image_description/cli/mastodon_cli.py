@@ -10,6 +10,7 @@ Subcommands:
     auth-code <CODE>      Exchange an auth code for an access token
     post <PATH>           Post an image (with sidecar JSON) to Mastodon
     list                  List recent posts
+    stats                 Show engagement stats (likes, boosts, replies)
     delete <ID>           Delete a post
 """
 
@@ -279,7 +280,7 @@ def _post_status(
 
 
 # ---------------------------------------------------------------------------
-#  display helpers for list
+#  display helpers for list / stats
 # ---------------------------------------------------------------------------
 
 def _extract_media_filename(url: str) -> str:
@@ -397,6 +398,139 @@ def cmd_list(
         print()
 
     print(f"{len(statuses)} post(s) shown.")
+
+
+def cmd_stats(
+    code: Optional[str] = None,
+    limit: int = 20,
+    post_id: Optional[str] = None,
+) -> None:
+    """Show engagement stats for recent posts, or detailed stats for a single post."""
+    token = _get_token(code=code)
+    creds = _load_creds()
+    instance = _get_instance(creds)
+
+    if post_id:
+        _show_post_detail(instance, token, post_id)
+        return
+
+    # Get account ID
+    account = _api_request(instance, token, "GET", "/api/v1/accounts/verify_credentials")
+    account_id = account.get("id")
+    if not account_id:
+        sys.stderr.write("Could not get account ID.\n")
+        raise SystemExit(1)
+
+    # Get statuses
+    path = f"/api/v1/accounts/{account_id}/statuses?limit={limit}"
+    statuses = _api_request(instance, token, "GET", path)
+
+    if not statuses:
+        print("No posts found.")
+        return
+
+    # Table header
+    print(f"{'#':<3} {'Date':<12} {'Likes':<7} {'Boosts':<7} {'Replies':<8} {'Content'}")
+    print("-" * 80)
+
+    total_likes = 0
+    total_boosts = 0
+    total_replies = 0
+
+    for i, s in enumerate(statuses):
+        sid = s.get("id", "?")
+        created = s.get("created_at", "?")[:10]  # date only
+        favourites_count = s.get("favourites_count", 0)
+        reblogs_count = s.get("reblogs_count", 0)
+        replies_count = s.get("replies_count", 0)
+        content_html = s.get("content", "") or ""
+        content_plain = _truncate(_plain_text(content_html), 50)
+
+        total_likes += favourites_count
+        total_boosts += reblogs_count
+        total_replies += replies_count
+
+        print(
+            f"{i+1:<3} {created:<12} {favourites_count:<7} "
+            f"{reblogs_count:<7} {replies_count:<8} {content_plain}"
+        )
+
+    print("-" * 80)
+    print(f"  Totals:  {total_likes:<7} {total_boosts:<7} {total_replies:<8}")
+    total_engagement = total_likes + total_boosts + total_replies
+    print(f"  Total engagement: {total_engagement}")
+    print()
+    print("Use 'stats --post-id <ID>' for detailed interactions on a specific post.")
+
+
+def _show_post_detail(instance: str, token: str, post_id: str) -> None:
+    """Show detailed engagement for a single post: who liked, who boosted, reply content."""
+    # Get the status
+    status = _api_request(instance, token, "GET", f"/api/v1/statuses/{post_id}")
+
+    # Get context (replies)
+    context = _api_request(instance, token, "GET", f"/api/v1/statuses/{post_id}/context")
+
+    # Get who favourited
+    favourited_by = _api_request(
+        instance, token, "GET", f"/api/v1/statuses/{post_id}/favourited_by"
+    )
+
+    # Get who boosted
+    reblogged_by = _api_request(
+        instance, token, "GET", f"/api/v1/statuses/{post_id}/reblogged_by"
+    )
+
+    # Post header
+    created = status.get("created_at", "?")
+    content = _plain_text(status.get("content", ""))
+    url = status.get("url", "")
+
+    print(f"Post ID:   {post_id}")
+    print(f"Date:      {created}")
+    if url:
+        print(f"URL:       {url}")
+    print(f"Content:   {_truncate(content, 200)}")
+    print()
+
+    # Likes
+    if isinstance(favourited_by, list):
+        print(f"Likes ({len(favourited_by)}):")
+        for f in favourited_by:
+            acct = f.get("acct", "?")
+            display = f.get("display_name", "")
+            followers = f.get("followers_count", 0)
+            print(f"  @{acct}  ({display})  [{followers} followers]")
+    else:
+        print("Likes: (not available)")
+    print()
+
+    # Boosts
+    if isinstance(reblogged_by, list):
+        print(f"Boosts ({len(reblogged_by)}):")
+        for r in reblogged_by:
+            acct = r.get("acct", "?")
+            display = r.get("display_name", "")
+            followers = r.get("followers_count", 0)
+            print(f"  @{acct}  ({display})  [{followers} followers]")
+    else:
+        print("Boosts: (not available)")
+    print()
+
+    # Replies
+    descendants = context.get("descendants", [])
+    print(f"Replies ({len(descendants)}):")
+    for d in descendants:
+        acct_info = d.get("account", {})
+        acct = acct_info.get("acct", "?")
+        display = acct_info.get("display_name", "")
+        reply_content = _plain_text(d.get("content", ""))
+        reply_date = d.get("created_at", "?")
+        reply_id = d.get("id", "")
+        print(f"  #{reply_id}")
+        print(f"  @{acct} ({display}) — {reply_date}")
+        print(f"  {reply_content}")
+        print()
 
 
 def cmd_delete(
@@ -520,6 +654,24 @@ def main(argv: Optional[List[str]] = None) -> None:
         help="Number of posts to list (default: 20).",
     )
 
+    # stats [--limit <N>] [--post-id <ID>] [--code <CODE>]
+    p_stats = sub.add_parser(
+        "stats",
+        help="Show engagement stats (likes, boosts, replies) for recent posts",
+    )
+    p_stats.add_argument(
+        "--limit",
+        type=int,
+        default=20,
+        help="Number of posts to show (default: 20).",
+    )
+    p_stats.add_argument(
+        "--post-id",
+        default=None,
+        help="Show detailed stats for a specific post (who liked, who replied, etc).",
+    )
+    p_stats.add_argument("--code", default=None, help="OAuth authorization code")
+
     # delete <ID> [--code <CODE>]
     p_del = sub.add_parser("delete", help="Delete a Mastodon post by ID")
     p_del.add_argument("post_id", help="ID of the post to delete")
@@ -563,6 +715,8 @@ def main(argv: Optional[List[str]] = None) -> None:
         cmd_auth_code(args.code)
     elif args.command == "list":
         cmd_list(code=args.code, limit=args.limit)
+    elif args.command == "stats":
+        cmd_stats(code=args.code, limit=args.limit, post_id=args.post_id)
     elif args.command == "delete":
         cmd_delete(post_id=args.post_id, code=args.code)
     elif args.command == "post":

@@ -17,6 +17,7 @@ src/image_description/cli/mastodon_cli.py
 src/image_description/cli/pixelfed_cli.py
 src/image_description/cli/post_builder_cli.py
 src/image_description/cli/social_post_builder_cli.py
+src/image_description/cli/tumblr_cli.py
 src/image_description/cli/wp_import_cli.py
 src/image_description/cli/wpcom_cli.py
 src/image_description/image/__init__.py
