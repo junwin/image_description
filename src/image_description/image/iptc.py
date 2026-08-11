@@ -44,23 +44,25 @@ def get_exif_date(file_path: str) -> str:
     return date_original or create_date or ""
 
 
-def show_image_iptc_meta(file_path: str) -> Tuple[str, str, List[str]]:
-    """Return (title, description, keywords) from IPTC using exiftool."""
+def show_image_iptc_meta(file_path: str) -> Tuple[str, str, List[str], str]:
+    """Return (title, description, keywords, alt_text) from IPTC/XMP using exiftool."""
     title = ""
     description = ""
     keywords: List[str] = []
+    alt_text = ""
 
     code, out, err = run_exiftool(
         [
             "-IPTC:ObjectName",
             "-IPTC:Caption-Abstract",
             "-IPTC:Keywords",
+            "-XMP:AltTextAccessibility",
             file_path,
         ]
     )
     if code != 0:
         print(f"exiftool error reading IPTC from {file_path}: {err}")
-        return title, description, keywords
+        return title, description, keywords, alt_text
 
     for line in out.splitlines():
         if ":" not in line:
@@ -75,8 +77,10 @@ def show_image_iptc_meta(file_path: str) -> Tuple[str, str, List[str]]:
         elif key.endswith("Keywords"):
             # exiftool may output multiple lines for multiple keywords
             keywords.append(value)
+        elif key.endswith("Alt Text Accessibility") or key.endswith("AltTextAccessibility"):
+            alt_text = value
 
-    return title, description, keywords
+    return title, description, keywords, alt_text
 
 
 def write_iptc_meta(
@@ -84,12 +88,15 @@ def write_iptc_meta(
     title: Optional[str] = None,
     description: Optional[str] = None,
     keywords: Optional[List[str]] = None,
+    alt_text: Optional[str] = None,
 ) -> None:
     args: List[str] = []
     if title is not None:
         args.append(f"-IPTC:ObjectName={title}")
     if description is not None:
         args.append(f"-IPTC:Caption-Abstract={description}")
+    if alt_text is not None:
+        args.append(f"-XMP:AltTextAccessibility={alt_text}")
     if keywords is not None:
         # Clear existing keywords then add new ones
         args.append("-IPTC:Keywords=")

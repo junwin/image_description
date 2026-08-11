@@ -102,7 +102,7 @@ def process_image(
     else:
         print(f"Processing {image_path} ({size_mb:.2f} MB)")
 
-    existing_title, existing_description, existing_keywords = show_image_iptc_meta(image_path)
+    existing_title, existing_description, existing_keywords, existing_alt_text = show_image_iptc_meta(image_path)
     capture_datetime = get_exif_date(image_path)
 
     img_desc, enhanced_desc, social_caption, new_keywords = generate_openai_description_and_keywords(
@@ -114,6 +114,9 @@ def process_image(
         max_side=max_side,
     )
 
+    # Use existing IPTC alt text if present, otherwise the AI-generated one.
+    image_description = existing_alt_text if existing_alt_text else img_desc
+
     merged_keywords = merge_keywords(existing_keywords, new_keywords)
     hashtags = build_hashtags(merged_keywords)
 
@@ -121,7 +124,7 @@ def process_image(
         original_title=existing_title,
         original_description=existing_description,
         title=existing_title,
-        image_description=img_desc,
+        image_description=image_description,
         enhanced_description=enhanced_desc,
         keywords=merged_keywords,
         hashtags=hashtags,
@@ -169,7 +172,14 @@ def embed_metadata(directory: str) -> None:
             continue
 
         title = sidecar.title or sidecar.original_title
-        description = sidecar.enhanced_description or sidecar.original_description
+        description = sidecar.original_description or sidecar.enhanced_description
         keywords = sidecar.keywords or []
+        alt_text = sidecar.image_description or ""
 
-        write_iptc_meta(path, title=title, description=description, keywords=keywords)
+        write_iptc_meta(
+            path,
+            title=title,
+            description=description,
+            keywords=keywords,
+            alt_text=alt_text,
+        )
