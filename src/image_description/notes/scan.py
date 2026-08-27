@@ -7,7 +7,6 @@ import yaml
 from PIL import UnidentifiedImageError, Image
 
 from ..paths import resolve_image_and_relative, iter_images
-from ..image.openai_client import _load_openai_client, _encode_image_to_base64
 from .prompts import SCAN_PROMPT
 
 
@@ -34,6 +33,9 @@ def build_markdown(image_path: str, data: Dict) -> str:
 
 
 def _call_openai(image_path: str, max_side: Optional[int] = None) -> Dict:
+    # Lazy import to avoid hard dependency during import-time (helps tests).
+    from ..image.openai_client import _load_openai_client, _encode_image_to_base64
+
     client = _load_openai_client()
 
     image_b64 = _encode_image_to_base64(image_path, max_side=max_side)
@@ -140,4 +142,3 @@ def process_scan_directory(directory: str, overwrite: bool = False, max_side: Op
         except Exception as e:
             print(f"Error processing {img}: {e}", file=sys.stderr)
             # keep going
-

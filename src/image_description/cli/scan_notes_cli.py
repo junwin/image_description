@@ -2,12 +2,12 @@ import argparse
 import os
 import sys
 
-from ..paths import resolve_image_and_relative, iter_images
 from ..notes.scan import process_scan_directory, process_scan_image
+from ..paths import resolve_image_and_relative
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Scan photographed notes and produce Obsidian markdown files.")
+    parser = argparse.ArgumentParser(description="Scan photographed notes and produce Obsidian markdown files using OpenAI Vision.")
     parser.add_argument("path", help="Image file or directory to process.")
     parser.add_argument(
         "--image-root",
@@ -19,11 +19,10 @@ def main() -> None:
         ),
     )
     parser.add_argument(
-        "--overwrite-md",
-        "--overwrite",
+        "--overwrite-md", "--overwrite",
         dest="overwrite",
         action="store_true",
-        help="If set, existing .md files will be overwritten. By default existing .md are skipped.",
+        help="If set, existing .md files will be overwritten. By default existing markdown files are skipped.",
     )
     parser.add_argument(
         "--max-side",
@@ -37,33 +36,39 @@ def main() -> None:
 
     args = parser.parse_args()
 
+    # Resolve path against image_root if provided; resolve_image_and_relative handles validation
     if args.image_root:
-        try:
-            abs_path, rel = resolve_image_and_relative(args.image_root, args.path)
-        except SystemExit:
-            # resolve_image_and_relative prints to stderr and exits with non-zero; propagate
-            raise
-
-        if os.path.isdir(abs_path):
-            process_scan_directory(abs_path, overwrite=args.overwrite, max_side=args.max_side)
-        else:
-            try:
-                process_scan_image(abs_path, overwrite=args.overwrite, max_side=args.max_side)
-            except SystemExit:
-                raise
-            except Exception as e:
-                print(f"Error: {e}", file=sys.stderr)
-                sys.exit(2)
+        abs_path, rel = resolve_image_and_relative(args.image_root, args.path)
     else:
-        # no image_root: use provided path directly
-        if os.path.isdir(args.path):
-            process_scan_directory(args.path, overwrite=args.overwrite, max_side=args.max_side)
-        else:
-            try:
-                process_scan_image(args.path, overwrite=args.overwrite, max_side=args.max_side)
-            except Exception as e:
-                print(f"Error: {e}", file=sys.stderr)
-                sys.exit(2)
+        abs_path = os.path.abspath(args.path)
+
+    if not os.path.exists(abs_path):
+        print(f"Path not found: {abs_path}", file=sys.stderr)
+        sys.exit(1)
+
+    # Directory case
+    if os.path.isdir(abs_path):
+        try:
+            process_scan_directory(abs_path, overwrite=args.overwrite, max_side=args.max_side)
+        except SystemExit:
+            raise
+        except Exception as e:
+            print(f"Error processing directory {abs_path}: {e}", file=sys.stderr)
+            sys.exit(2)
+        return
+
+    # Single image
+    try:
+        created = process_scan_image(abs_path, overwrite=args.overwrite, max_side=args.max_side)
+    except SystemExit:
+        raise
+    except Exception as e:
+        print(f"Error processing image {abs_path}: {e}", file=sys.stderr)
+        sys.exit(2)
+
+    if not created:
+        # process_scan_image prints its own skip messages
+        return
 
 
 if __name__ == "__main__":
