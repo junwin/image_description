@@ -52,7 +52,7 @@ def test_process_scan_image_skips_existing_md(tmp_path, monkeypatch):
         called["count"] += 1
         return {}
 
-    monkeypatch.setattr(scan_module, "_call_openai", fake_call)
+    monkeypatch.setattr(scan_module, "_call_model", fake_call)
 
     created = scan_module.process_scan_image(str(img_path), overwrite=False)
     assert created is False
@@ -109,3 +109,100 @@ def test_flags_empty_when_issues_empty():
     yaml_text = parts[1]
     parsed = yaml.safe_load(yaml_text)
     assert parsed["flags"] == []
+
+
+def test_preprocess_encodes_rgb_jpeg(tmp_path):
+    from PIL import Image
+    import base64
+    from image_description.image.openai_client import _encode_image_to_base64
+
+    img_path = tmp_path / "page.jpg"
+    im = Image.new("RGB", (20, 20), color=(120, 120, 120))
+    im.save(img_path)
+
+    b64 = _encode_image_to_base64(str(img_path), preprocess=True)
+    data = base64.b64decode(b64)
+    assert data[:2] == b"\xff\xd8"  # JPEG magic
+    # decode to confirm it is a valid image
+    decoded = Image.open(__import__("io").BytesIO(data))
+    assert decoded.mode == "RGB"
+
+
+def test_process_scan_image_forwards_settings(tmp_path, monkeypatch):
+    from PIL import Image
+
+    img_path = tmp_path / "page.jpg"
+    im = Image.new("RGB", (10, 10), color=(255, 255, 255))
+    im.save(img_path)
+
+    captured = {}
+
+    def fake_call(image_path, **kwargs):
+        captured.update(kwargs)
+        return {
+            "image_description": "d",
+            "text": "t",
+            "keywords": [],
+            "keywords_image": [],
+            "issues": [],
+        }
+
+    monkeypatch.setattr(scan_module, "_call_model", fake_call)
+    scan_module.process_scan_image(
+        str(img_path),
+        overwrite=True,
+        model="gpt-4o",
+        preprocess=True,
+        provider="gemini",
+        credential_path="/tmp/creds",
+    )
+    assert captured["model"] == "gpt-4o"
+    assert captured["preprocess"] is True
+    assert captured["provider"] == "gemini"
+    assert captured["credential_path"] == "/tmp/creds"
+
+
+def test_call_model_uses_galet_client(tmp_path, monkeypatch):
+    """_call_model should go through galet's create_vision_response and parse JSON."""
+    from PIL import Image
+
+    img_path = tmp_path / "page.jpg"
+    im = Image.new("RGB", (10, 10), color=(255, 255, 255))
+    im.save(img_path)
+
+    captured = {}
+
+    def fake_create(prompt, image_b64, **kwargs):
+        captured["prompt"] = prompt
+        captured["image_b64"] = image_b64
+        captured.update(kwargs)
+        return json.dumps(
+            {
+                "image_description": "notebook page",
+                "text": "transcribed body",
+                "keywords": ["note"],
+                "keywords_image": ["ink"],
+                "issues": ["[illegible] at line 2"],
+            }
+        )
+
+    monkeypatch.setattr(
+        "image_description.image.galet_client.create_vision_response",
+        fake_create,
+    )
+
+    data = scan_module._call_model(
+        str(img_path),
+        model="gpt-4o",
+        preprocess=True,
+        provider="openai",
+        credential_path="/tmp/creds",
+    )
+
+    assert data["text"] == "transcribed body"
+    assert data["issues"] == ["[illegible] at line 2"]
+    assert captured["model"] == "gpt-4o"
+    assert captured["provider"] == "openai"
+    assert captured["credential_path"] == "/tmp/creds"
+    assert captured["temperature"] == 0.2
+    assert captured["image_b64"]

@@ -213,7 +213,7 @@ def cmd_auth_code(code: str) -> None:
     print("Access token saved.")
 
 
-def cmd_post(image_path: str, dry_run: bool = False, caption_field: str = "social_caption") -> None:
+def cmd_post(image_path: str, dry_run: bool = False, caption_field: Optional[str] = None) -> None:
     """Upload an image and post to Pixelfed.
 
     After a successful post, writes publish info (platform, post_id, url, date)
@@ -242,7 +242,14 @@ def cmd_post(image_path: str, dry_run: bool = False, caption_field: str = "socia
     if dry_run:
         print("=== DRY RUN ===")
         print(f"Image: {img}")
-        print(f"Caption field: {caption_field}")
+        print(
+            "Caption field: "
+            + (
+                caption_field
+                if caption_field
+                else "original_description (fallback: image_description)"
+            )
+        )
         print(f"Alt text: {alt_text}")
         print(f"Status:\n{status}")
         print("=== End dry run ===")
@@ -282,6 +289,7 @@ def cmd_post(image_path: str, dry_run: bool = False, caption_field: str = "socia
         if sidecar_path:
             try:
                 sidecar.add_publish_event("pixelfed", post_id, post_url)
+                sidecar.can_publish = False  # published -> no longer pending
                 sidecar.save(sidecar_path)
                 print(f"Sidecar updated: {sidecar_path}")
             except Exception as e:
@@ -381,8 +389,11 @@ def main(argv: Optional[List[str]] = None) -> None:
     p_post.add_argument("--dry-run", action="store_true", help="Preview without posting")
     p_post.add_argument(
         "--caption-field",
-        default="social_caption",
-        help="Sidecar field to use for the post caption (default: social_caption).",
+        default=None,
+        help=(
+            "Sidecar field to use for the post caption "
+            "(default: original_description, falling back to image_description)."
+        ),
     )
 
     # list

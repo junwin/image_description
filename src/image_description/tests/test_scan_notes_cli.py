@@ -37,20 +37,20 @@ def test_process_scan_image_skips_existing_md(monkeypatch, tmp_path):
     md = tmp_path / "IMG_0002.md"
     md.write_text("existing")
 
-    called = {"openai": False}
+    called = {"model": False}
 
     def fake_call(*a, **k):
-        called["openai"] = True
+        called["model"] = True
         return {}
 
-    # monkeypatch the internal _call_openai to ensure it is NOT called
+    # monkeypatch the internal _call_model to ensure it is NOT called
     import src.image_description.notes.scan as scan_mod
 
-    monkeypatch.setattr(scan_mod, "_call_openai", fake_call)
+    monkeypatch.setattr(scan_mod, "_call_model", fake_call)
 
     created = process_scan_image(str(img), overwrite=False)
     assert created is False
-    assert called["openai"] is False
+    assert called["model"] is False
 
 
 def test_image_root_rejects_absolute_and_escape(tmp_path):

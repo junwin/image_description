@@ -9,6 +9,8 @@ from PIL import UnidentifiedImageError, Image
 from ..paths import resolve_image_and_relative, iter_images
 from .prompts import SCAN_PROMPT
 
+DEFAULT_SCAN_MODEL = "gemini-3.6-flash"
+
 
 def build_markdown(image_path: str, data: Dict) -> str:
     """Build Obsidian Markdown content from model data.
@@ -32,52 +34,30 @@ def build_markdown(image_path: str, data: Dict) -> str:
     return f"---\n{yaml_text}---\n\n{body}\n"
 
 
-def _call_openai(image_path: str, max_side: Optional[int] = None) -> Dict:
+def _call_model(
+    image_path: str,
+    max_side: Optional[int] = None,
+    model: str = DEFAULT_SCAN_MODEL,
+    preprocess: bool = False,
+    provider: Optional[str] = None,
+    credential_path: Optional[str] = None,
+) -> Dict:
     # Lazy import to avoid hard dependency during import-time (helps tests).
-    from ..image.openai_client import _load_openai_client, _encode_image_to_base64
+    from ..image.galet_client import create_vision_response, parse_json_response
+    from ..image.openai_client import _encode_image_to_base64
 
-    client = _load_openai_client()
+    image_b64 = _encode_image_to_base64(image_path, max_side=max_side, preprocess=preprocess)
 
-    image_b64 = _encode_image_to_base64(image_path, max_side=max_side)
-
-    response = client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[
-            {
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": SCAN_PROMPT},
-                    {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image_b64}"}},
-                ],
-            }
-        ],
+    text = create_vision_response(
+        SCAN_PROMPT,
+        image_b64,
+        model=model,
+        provider=provider,
+        credential_path=credential_path,
         temperature=0.2,
     )
 
-    content = response.choices[0].message.content or ""
-    text = content.strip()
-    if text.startswith("```"):
-        lines = text.splitlines()
-        if lines[0].startswith("```"):
-            lines = lines[1:]
-        if lines and lines[-1].startswith("```"):
-            lines = lines[:-1]
-        text = "\n".join(lines).strip()
-
-    try:
-        data = json.loads(text)
-    except json.JSONDecodeError:
-        start = text.find("{")
-        end = text.rfind("}")
-        if start != -1 and end != -1 and end > start:
-            try:
-                data = json.loads(text[start : end + 1])
-            except json.JSONDecodeError:
-                print(f"Model response was not valid JSON: {text}", file=sys.stderr)
-                raise RuntimeError("Model response was not valid JSON")
-        else:
-            print(f"Model response was not valid JSON: {text}", file=sys.stderr)
-            raise RuntimeError("Model response was not valid JSON")
+    data = parse_json_response(text)
 
     # Validate required keys
     required = ["image_description", "text", "keywords", "keywords_image", "issues"]
@@ -89,7 +69,15 @@ def _call_openai(image_path: str, max_side: Optional[int] = None) -> Dict:
     return data
 
 
-def process_scan_image(image_path: str, overwrite: bool = False, max_side: Optional[int] = None) -> bool:
+def process_scan_image(
+    image_path: str,
+    overwrite: bool = False,
+    max_side: Optional[int] = None,
+    model: str = DEFAULT_SCAN_MODEL,
+    preprocess: bool = False,
+    provider: Optional[str] = None,
+    credential_path: Optional[str] = None,
+) -> bool:
     """Process a single image. Returns True if a markdown file was created.
 
     Skips non-image files and existing .md files when overwrite is False.
@@ -116,7 +104,14 @@ def process_scan_image(image_path: str, overwrite: bool = False, max_side: Optio
 
     # Call model
     try:
-        data = _call_openai(image_path, max_side=max_side)
+        data = _call_model(
+            image_path,
+            max_side=max_side,
+            model=model,
+            preprocess=preprocess,
+            provider=provider,
+            credential_path=credential_path,
+        )
     except Exception as e:
         print(f"Error calling model for {image_path}: {e}", file=sys.stderr)
         raise
@@ -134,11 +129,27 @@ def process_scan_image(image_path: str, overwrite: bool = False, max_side: Optio
     return True
 
 
-def process_scan_directory(directory: str, overwrite: bool = False, max_side: Optional[int] = None) -> None:
+def process_scan_directory(
+    directory: str,
+    overwrite: bool = False,
+    max_side: Optional[int] = None,
+    model: str = DEFAULT_SCAN_MODEL,
+    preprocess: bool = False,
+    provider: Optional[str] = None,
+    credential_path: Optional[str] = None,
+) -> None:
     images = list(iter_images(directory))
     for img in images:
         try:
-            process_scan_image(img, overwrite=overwrite, max_side=max_side)
+            process_scan_image(
+                img,
+                overwrite=overwrite,
+                max_side=max_side,
+                model=model,
+                preprocess=preprocess,
+                provider=provider,
+                credential_path=credential_path,
+            )
         except Exception as e:
             print(f"Error processing {img}: {e}", file=sys.stderr)
             # keep going

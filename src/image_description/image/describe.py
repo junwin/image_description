@@ -67,19 +67,25 @@ def process_image(
     preset: str,
     overwrite: bool = False,
     max_side: Optional[int] = None,
+    model: str = "gpt-4o-mini",
+    provider: Optional[str] = None,
+    credential_path: Optional[str] = None,
 ) -> None:
     """Process a single image and write a JSON sidecar.
 
     If a sidecar already exists and overwrite is False, the image will be skipped
-    early (before any OpenAI calls) to avoid unnecessary network usage.
+    early (before any model calls) to avoid unnecessary network usage.
 
     Args:
         image_path: Path to the image file.
-        preset: Prompt preset name to use when calling the OpenAI client.
+        preset: Prompt preset name to use when calling the model.
         overwrite: If True, existing sidecar files will be overwritten. Default False.
         max_side: If set, downscale image in-memory before sending to the API.
                   Longest side will not exceed this many pixels. Original file
                   is never modified.
+        model: Model name (default gpt-4o-mini).
+        provider: Explicit galet provider; None -> routing (openai fallback).
+        credential_path: Directory with galet credential files; None -> galet defaults.
     """
     if not is_image_file(image_path):
         print(f"Skipping non-image file: {image_path}")
@@ -112,6 +118,9 @@ def process_image(
         existing_keywords,
         preset=preset,
         max_side=max_side,
+        model=model,
+        provider=provider,
+        credential_path=credential_path,
     )
 
     # Use existing IPTC alt text if present, otherwise the AI-generated one.
@@ -141,6 +150,9 @@ def process_directory(
     preset: str,
     overwrite: bool = False,
     max_side: Optional[int] = None,
+    model: str = "gpt-4o-mini",
+    provider: Optional[str] = None,
+    credential_path: Optional[str] = None,
 ) -> None:
     """Process all images in a directory.
 
@@ -150,10 +162,14 @@ def process_directory(
         overwrite: If True, existing sidecar files will be overwritten. Default False.
         max_side: If set, downscale images in-memory before sending to the API.
                   Original files are never modified.
+        model: Model name (default gpt-4o-mini).
+        provider: Explicit galet provider; None -> routing (openai fallback).
+        credential_path: Directory with galet credential files; None -> galet defaults.
     """
     for path in iter_images(directory):
         try:
-            process_image(path, preset=preset, overwrite=overwrite, max_side=max_side)
+            process_image(path, preset=preset, overwrite=overwrite, max_side=max_side,
+                          model=model, provider=provider, credential_path=credential_path)
         except Exception as e:  # noqa: BLE001
             print(f"Error processing {path}: {e}")
 

@@ -7,7 +7,9 @@ from ..paths import resolve_image_and_relative
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Scan photographed notes and produce Obsidian markdown files using OpenAI Vision.")
+    parser = argparse.ArgumentParser(
+        description="Scan photographed notes and produce Obsidian markdown files using Google Gemini (vision, via galet)."
+    )
     parser.add_argument("path", help="Image file or directory to process.")
     parser.add_argument(
         "--image-root",
@@ -30,7 +32,45 @@ def main() -> None:
         type=int,
         default=None,
         help=(
-            "If set, downscale images in-memory before sending to the OpenAI API so their longest side does not exceed this many pixels."
+            "If set, downscale images in-memory before sending to the API so their longest side does not exceed this many pixels."
+        ),
+    )
+    parser.add_argument(
+        "--model",
+        dest="model",
+        default="gemini-3.6-flash",
+        help=(
+            "Vision model used for transcription (default: gemini-3.6-flash). "
+            "Google Gemini handles handwriting best; it is the default. "
+            "OpenAI can be selected explicitly, e.g. --model gpt-4o --provider openai."
+        ),
+    )
+    parser.add_argument(
+        "--provider",
+        dest="provider",
+        default=None,
+        choices=["openai", "gemini", "deepseek", "mistral", "ollama"],
+        help=(
+            "Model provider. When omitted, the provider is inferred from the model name "
+            "(gemini-* -> gemini, etc.) and falls back to openai."
+        ),
+    )
+    parser.add_argument(
+        "--credential-path",
+        dest="credential_path",
+        default=None,
+        help=(
+            "Directory holding galet credential files (oaicred.json, gemini_cred.json, ...). "
+            "Defaults to GALET_CREDENTIAL_PATH, then ~/credential, otherwise provider env vars."
+        ),
+    )
+    parser.add_argument(
+        "--preprocess",
+        dest="preprocess",
+        action="store_true",
+        help=(
+            "Preprocess the image (grayscale, contrast stretch, denoise, sharpen) "
+            "before sending to the model. Helps with low-contrast or noisy scans."
         ),
     )
 
@@ -49,7 +89,15 @@ def main() -> None:
     # Directory case
     if os.path.isdir(abs_path):
         try:
-            process_scan_directory(abs_path, overwrite=args.overwrite, max_side=args.max_side)
+            process_scan_directory(
+                abs_path,
+                overwrite=args.overwrite,
+                max_side=args.max_side,
+                model=args.model,
+                preprocess=args.preprocess,
+                provider=args.provider,
+                credential_path=args.credential_path,
+            )
         except SystemExit:
             raise
         except Exception as e:
@@ -59,7 +107,15 @@ def main() -> None:
 
     # Single image
     try:
-        created = process_scan_image(abs_path, overwrite=args.overwrite, max_side=args.max_side)
+        created = process_scan_image(
+            abs_path,
+            overwrite=args.overwrite,
+            max_side=args.max_side,
+            model=args.model,
+            preprocess=args.preprocess,
+            provider=args.provider,
+            credential_path=args.credential_path,
+        )
     except SystemExit:
         raise
     except Exception as e:
