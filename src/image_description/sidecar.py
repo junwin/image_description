@@ -24,9 +24,12 @@ class Sidecar:
     hashtags: str = ""
     social_caption: str = ""
 
-    # Added per design doc: image identity information.
-    # `image_filename` is required to make the image-sidecar link explicit.
-    # `image_relative_path` is optional and may be empty; kept for future use.
+    # Image identity information.
+    # `image_filename` is the *base* filename of the image, e.g. "IMG_0001.jpg".
+    # It makes the image<->sidecar link explicit.
+    # `image_relative_path` is the image path relative to `--image-root` and may
+    # contain subdirectories, e.g. "2026/03/IMG_0001.jpg". It is empty when the
+    # image was processed without an image root.
     image_filename: str = ""
     image_relative_path: str = ""
 
@@ -144,31 +147,47 @@ class Sidecar:
 
     def save(self, json_path: str, image_root: Optional[str] = None) -> None:
         """
-        Save the sidecar to json_path. If image_root is provided, compute and set
-        image_relative_path from image_root and this sidecar's image_filename.
+        Save the sidecar to json_path.
+
+        Image identity semantics:
+        - ``image_filename`` holds the *base* filename of the image
+          (e.g. "IMG_0001.jpg").
+        - ``image_relative_path`` holds the image path relative to ``image_root``
+          and may contain subdirectories (e.g. "2026/03/IMG_0001.jpg").
+
+        When ``image_root`` is provided, ``image_relative_path`` is the source of
+        truth for the image location and is validated/normalised against the root.
+        If it is empty, ``image_filename`` is used as a fallback (top-level images
+        and legacy sidecars that only recorded a base filename).
 
         Validation behaviour when image_root is provided:
-        - image_filename must be set and must NOT be an absolute path.
-        - the resolved path (join(image_root, image_filename) normalized) must be
-          located within image_root (no escaping via ..).
+        - the candidate relative path must be set and must NOT be absolute.
+        - the resolved path (image_root / candidate, normalised) must be located
+          within image_root (no escaping via .. or symlinks).
 
         On validation errors, print a message to stderr and exit non-zero.
         """
-        # If an image_root was supplied, validate and compute image_relative_path.
+        # If an image_root was supplied, validate and normalise the image identity.
         if image_root is not None:
-            if not self.image_filename:
-                sys.stderr.write("Error: --image-root was provided but sidecar.image_filename is empty.\n")
+            # image_relative_path is the source of truth; fall back to the base
+            # filename only when it is empty (top-level / legacy sidecars).
+            candidate = self.image_relative_path or self.image_filename
+            if not candidate:
+                sys.stderr.write(
+                    "Error: --image-root was provided but the sidecar has neither "
+                    "image_relative_path nor image_filename.\n"
+                )
                 sys.exit(2)
 
-            # Reject absolute image filenames when image_root is used.
-            if os.path.isabs(self.image_filename):
+            # Reject absolute image paths when image_root is used.
+            if os.path.isabs(candidate):
                 sys.stderr.write("Error: absolute image paths are not allowed when --image-root is set.\n")
                 sys.exit(2)
 
             # Normalize the image_root to an absolute canonical path (follow symlinks).
             root_abs = os.path.realpath(image_root)
             # Join and normalize the target image path.
-            target = os.path.normpath(os.path.join(root_abs, self.image_filename))
+            target = os.path.normpath(os.path.join(root_abs, candidate))
             target = os.path.realpath(target)
 
             # Ensure the resolved target path is within the image_root.
@@ -176,17 +195,18 @@ class Sidecar:
                 common = os.path.commonpath([root_abs, target])
             except ValueError:
                 # In case paths are on different drives (Windows) or similar issues.
-                sys.stderr.write("Error: invalid image_root or image_filename; cannot compute common path.\n")
+                sys.stderr.write("Error: invalid image_root or image path; cannot compute common path.\n")
                 sys.exit(2)
 
             if common != root_abs:
                 sys.stderr.write("Error: resolved image path escapes the image root (possible '..' in path).\n")
                 sys.exit(2)
 
-            # Compute relative path (may contain subdirectories)
+            # Compute the root-relative path (may contain subdirectories) and keep
+            # image_filename as the bare base filename.
             rel = os.path.relpath(target, start=root_abs)
-            # Store the relative path using OS-native separators.
             self.image_relative_path = rel
+            self.image_filename = os.path.basename(rel)
 
         # Ensure destination directory exists
         os.makedirs(os.path.dirname(os.path.abspath(json_path)) or ".", exist_ok=True)
