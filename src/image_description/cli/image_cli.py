@@ -150,10 +150,11 @@ def main() -> None:
                         print(f"Error reading sidecar {json_path}: {e}", file=sys.stderr)
                         sys.exit(2)
 
-                    # image_relative should be the path relative to image_root
-                    image_rel = os.path.relpath(image_path, start=args.image_root)
-                    # Store relative path (may include subdirectories)
-                    sidecar.image_filename = image_rel
+                    # image_filename is the bare base filename; the path relative
+                    # to image_root (which may include subdirectories) goes into
+                    # image_relative_path.
+                    sidecar.image_filename = os.path.basename(image_path)
+                    sidecar.image_relative_path = os.path.relpath(image_path, start=args.image_root)
                     try:
                         sidecar.save(json_path, image_root=args.image_root)
                     except SystemExit:
@@ -188,8 +189,8 @@ def main() -> None:
                     print(f"Error reading sidecar {json_path}: {e}", file=sys.stderr)
                     sys.exit(2)
 
-                image_rel = os.path.relpath(abs_path, start=args.image_root)
-                sidecar.image_filename = image_rel
+                sidecar.image_filename = os.path.basename(abs_path)
+                sidecar.image_relative_path = os.path.relpath(abs_path, start=args.image_root)
                 try:
                     sidecar.save(json_path, image_root=args.image_root)
                 except SystemExit:
