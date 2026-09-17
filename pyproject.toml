@@ -20,6 +20,8 @@ blog-post-builder = "image_description.cli.blog_post_builder_cli:main"
 # Keep parity with existing tools so users can install these as scripts as well
 image = "image_description.cli.image_cli:main"
 post-builder = "image_description.cli.post_builder_cli:main"
+# Notebook scan -> Obsidian markdown tool
+scan-notes = "image_description.cli.scan_notes_cli:main"
 
 # Manual verification steps (no automated tests provided here):
 # 1. From the package root (src/repos/image_description) create a venv and install in editable mode:

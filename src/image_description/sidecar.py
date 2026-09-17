@@ -33,6 +33,11 @@ class Sidecar:
     # EXIF capture date (DateTimeOriginal, with CreateDate fallback).
     capture_datetime: str = ""
 
+    # Publish readiness flag. New sidecars default to False. Set it to True
+    # manually (e.g. after editing a sidecar) when the image is ready to
+    # publish; publishing CLIs reset it to False after a successful post.
+    can_publish: bool = False
+
     # Publish history: list of {platform, post_id, url, date} records.
     publish_history: List[Dict[str, str]] = field(default_factory=list)
 
@@ -53,6 +58,7 @@ class Sidecar:
             "image_filename",
             "image_relative_path",
             "capture_datetime",
+            "can_publish",
             "publish_history",
         }
 
@@ -73,6 +79,15 @@ class Sidecar:
         if not isinstance(publish_history, list):
             publish_history = []
 
+        # Parse can_publish (bool). Missing/malformed -> False (not ready).
+        raw_can_publish = data.get("can_publish", False)
+        if isinstance(raw_can_publish, bool):
+            can_publish = raw_can_publish
+        elif isinstance(raw_can_publish, str):
+            can_publish = raw_can_publish.strip().lower() in {"1", "true", "yes", "on"}
+        else:
+            can_publish = False
+
         return cls(
             original_title=str(data.get("original_title", "") or ""),
             original_description=str(data.get("original_description", "") or ""),
@@ -85,6 +100,7 @@ class Sidecar:
             image_filename=str(data.get("image_filename", "") or ""),
             image_relative_path=str(data.get("image_relative_path", "") or ""),
             capture_datetime=str(data.get("capture_datetime", "") or ""),
+            can_publish=can_publish,
             publish_history=publish_history,
             extra=extra,
         )
@@ -102,6 +118,7 @@ class Sidecar:
             "image_filename": self.image_filename,
             "image_relative_path": self.image_relative_path,
             "capture_datetime": self.capture_datetime,
+            "can_publish": self.can_publish,
             "publish_history": list(self.publish_history),
         }
         data.update(self.extra)

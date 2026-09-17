@@ -1,4 +1,9 @@
 openai>=1.0.0
 Pillow>=10.0.0
 requests>=2.31.0
-openai
+# galet (provider-agnostic LLM stack, repos/galet) replaces direct native-API calls.
+# Install editable from the sibling repo:
+#   .venv/bin/pip install -e /home/junwin/src/repos/galet
+# For the Gemini provider also install google-genai:
+#   .venv/bin/pip install google-genai
+galet

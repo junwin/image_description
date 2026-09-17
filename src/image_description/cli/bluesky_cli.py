@@ -226,7 +226,7 @@ def cmd_post(
     image_path: str,
     text: Optional[str] = None,
     dry_run: bool = False,
-    caption_field: str = "social_caption",
+    caption_field: Optional[str] = None,
 ) -> None:
     """Post an image to Bluesky.
 
@@ -264,7 +264,14 @@ def cmd_post(
         handle = creds.get("handle", "").strip() if creds else "(not configured)"
         print("=" * 60)
         print(f"Handle:        @{handle}")
-        print(f"Caption field: {caption_field}")
+        print(
+            "Caption field: "
+            + (
+                caption_field
+                if caption_field
+                else "original_description (fallback: image_description)"
+            )
+        )
         print(f"Image:         {image_path}")
         print(f"Sidecar:       {sidecar_path}")
         print(f"Alt text:      {alt_text[:200]}{'...' if len(alt_text) > 200 else ''}")
@@ -305,6 +312,7 @@ def cmd_post(
     try:
         sidecar_obj = Sidecar.load(sidecar_path)
         sidecar_obj.add_publish_event("bluesky", post_uri, post_url)
+        sidecar_obj.can_publish = False  # published -> no longer pending
         sidecar_obj.save(sidecar_path)
         print(f"Sidecar updated: {sidecar_path}")
     except Exception as e:
@@ -354,8 +362,11 @@ def main(argv: Optional[List[str]] = None) -> None:
     )
     p_post.add_argument(
         "--caption-field",
-        default="social_caption",
-        help="Sidecar field to use for the post caption (default: social_caption).",
+        default=None,
+        help=(
+            "Sidecar field to use for the post caption "
+            "(default: original_description, falling back to image_description)."
+        ),
     )
 
     args = parser.parse_args(argv)

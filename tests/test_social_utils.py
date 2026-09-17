@@ -30,51 +30,68 @@ class TestProcessHashtags:
 
 
 class TestBuildSocialText:
-    def test_uses_title_and_caption_field(self):
+    def test_default_uses_original_title_and_description(self):
         sidecar = {
             "original_title": "Sunset Over Hills",
             "title": "Sunset",
+            "original_description": "Taken on the ridge trail at golden hour.",
             "social_caption": "A beautiful evening",
             "image_description": "Golden sunset",
             "hashtags": "#sunset #golden",
         }
-        result = build_social_text(sidecar, caption_field="social_caption")
+        result = build_social_text(sidecar)
         assert "Sunset Over Hills" in result
-        assert "A beautiful evening" in result
+        assert "Taken on the ridge trail at golden hour." in result
+        # social_caption is NOT used by default
+        assert "A beautiful evening" not in result
         assert "#photography" in result
         assert "#sunset" in result
 
     def test_falls_back_title_to_title(self):
         sidecar = {
             "title": "Fallback Title",
-            "social_caption": "Caption text",
+            "original_description": "Caption text",
             "hashtags": "",
         }
-        result = build_social_text(sidecar, caption_field="social_caption")
+        result = build_social_text(sidecar)
         assert "Fallback Title" in result
         assert "Caption text" in result
 
-    def test_uses_custom_caption_field(self):
+    def test_falls_back_to_image_description_when_no_original_words(self):
+        sidecar = {
+            "title": "Fallback Title",
+            "original_description": "",
+            "image_description": "AI generated description",
+            "social_caption": "AI short caption",
+            "hashtags": "",
+        }
+        result = build_social_text(sidecar)
+        assert "AI generated description" in result
+        # social_caption is NOT used by default
+        assert "AI short caption" not in result
+
+    def test_explicit_caption_field_overrides_default(self):
         sidecar = {
             "original_title": "Test",
+            "original_description": "My own words",
             "social_caption": "Short social caption",
             "enhanced_description": "Longer enhanced description",
             "hashtags": "#test",
         }
-        # Default: social_caption
-        result_default = build_social_text(sidecar)
-        assert "Short social caption" in result_default
-        assert "Longer enhanced description" not in result_default
+        # Explicit social_caption (still available when wanted)
+        result = build_social_text(sidecar, caption_field="social_caption")
+        assert "Short social caption" in result
+        assert "My own words" not in result
 
-        # Custom: enhanced_description
+        # Explicit arbitrary field
         result_custom = build_social_text(sidecar, caption_field="enhanced_description")
         assert "Longer enhanced description" in result_custom
-        assert "Short social caption" not in result_custom
+        assert "My own words" not in result_custom
 
     def test_extra_text_appended(self):
         sidecar = {
             "title": "Photo",
-            "social_caption": "Nice view",
+            "original_description": "Nice view",
             "hashtags": "",
         }
         result = build_social_text(sidecar, extra_text="Check this out!")
@@ -83,21 +100,20 @@ class TestBuildSocialText:
     def test_char_limit_truncates(self):
         sidecar = {
             "title": "A" * 50,
-            "social_caption": "B" * 50,
+            "original_description": "B" * 50,
             "hashtags": "",
         }
         result = build_social_text(sidecar, char_limit=20)
         assert len(result) <= 20
         assert result.endswith("...")
 
-    def test_missing_caption_field_empty(self):
+    def test_title_only_when_no_caption_available(self):
         sidecar = {
             "original_title": "Just a title",
             "hashtags": "#photo",
         }
-        result = build_social_text(sidecar, caption_field="social_caption")
+        result = build_social_text(sidecar)
         assert "Just a title" in result
-        # No caption from social_caption since it's missing
         assert "#photography" in result
 
 

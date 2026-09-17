@@ -5,12 +5,12 @@ import sys
 from ..image.describe import embed_metadata, process_directory, process_image
 from ..image.iptc import get_exif_date
 from ..image.prompts import PROMPT_PRESETS
-from ..paths import resolve_image_and_relative, iter_images, sidecar_path_for_image
+from ..paths import is_image_file, resolve_image_and_relative, iter_images, sidecar_path_for_image
 from ..sidecar import Sidecar
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Describe images and manage metadata using OpenAI.")
+    parser = argparse.ArgumentParser(description="Describe images and manage metadata using vision models (via galet).")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     describe_parser = subparsers.add_parser(
@@ -31,7 +31,7 @@ def main() -> None:
         action="store_true",
         help=(
             "If set, existing JSON sidecar files will be overwritten. "
-            "By default existing sidecars are skipped to avoid unnecessary OpenAI calls."
+            "By default existing sidecars are skipped to avoid unnecessary API calls."
         ),
     )
     describe_parser.add_argument(
@@ -40,9 +40,34 @@ def main() -> None:
         type=int,
         default=None,
         help=(
-            "If set, downscale images in-memory before sending to the OpenAI API "
+            "If set, downscale images in-memory before sending to the API "
             "so their longest side does not exceed this many pixels. "
             "Original files on disk are never modified."
+        ),
+    )
+    describe_parser.add_argument(
+        "--model",
+        dest="model",
+        default="gpt-4o-mini",
+        help="Vision model used for descriptions (default: gpt-4o-mini).",
+    )
+    describe_parser.add_argument(
+        "--provider",
+        dest="provider",
+        default=None,
+        choices=["openai", "gemini", "deepseek", "mistral", "ollama"],
+        help=(
+            "Model provider. When omitted, the provider is inferred from the model name "
+            "(gemini-* -> gemini, etc.) and falls back to openai."
+        ),
+    )
+    describe_parser.add_argument(
+        "--credential-path",
+        dest="credential_path",
+        default=None,
+        help=(
+            "Directory holding galet credential files (oaicred.json, gemini_cred.json, ...). "
+            "Defaults to GALET_CREDENTIAL_PATH, then ~/credential, otherwise provider env vars."
         ),
     )
     describe_parser.add_argument(
@@ -76,6 +101,21 @@ def main() -> None:
         ),
     )
 
+    list_ready_parser = subparsers.add_parser(
+        "list-ready",
+        help="List images whose sidecar has can_publish: true (ready to publish).",
+    )
+    list_ready_parser.add_argument("path", help="Image file or directory to scan.")
+    list_ready_parser.add_argument(
+        "--image-root",
+        dest="image_root",
+        help=(
+            "Optional image root directory. When provided, the positional `path` must be relative. "
+            "The effective image path is image_root / path and must resolve inside image_root. "
+            "If the resolved path is a directory, files in that directory are processed non-recursively."
+        ),
+    )
+
     args = parser.parse_args()
 
     if args.command == "describe":
@@ -91,7 +131,8 @@ def main() -> None:
 
                 # Process directory (this will create sidecars where appropriate)
                 process_directory(abs_path, preset=args.preset, overwrite=args.overwrite,
-                                  max_side=args.max_side)
+                                  max_side=args.max_side, model=args.model,
+                                  provider=args.provider, credential_path=args.credential_path)
 
                 # Post-process sidecars to include image_relative_path when allowed.
                 for image_path in images:
@@ -129,7 +170,8 @@ def main() -> None:
                 existed_before = os.path.exists(json_path)
 
                 process_image(abs_path, preset=args.preset, overwrite=args.overwrite,
-                              max_side=args.max_side)
+                              max_side=args.max_side, model=args.model,
+                              provider=args.provider, credential_path=args.credential_path)
 
                 if not os.path.exists(json_path):
                     # process_image may have skipped this file (non-image, too large, etc.)
@@ -160,16 +202,21 @@ def main() -> None:
             # No image_root: preserve existing behavior
             if os.path.isdir(args.path):
                 process_directory(args.path, preset=args.preset, overwrite=args.overwrite,
-                                  max_side=args.max_side)
+                                  max_side=args.max_side, model=args.model,
+                                  provider=args.provider, credential_path=args.credential_path)
             else:
                 process_image(args.path, preset=args.preset, overwrite=args.overwrite,
-                              max_side=args.max_side)
+                              max_side=args.max_side, model=args.model,
+                              provider=args.provider, credential_path=args.credential_path)
 
     elif args.command == "embed":
         embed_metadata(args.directory)
 
     elif args.command == "backfill-dates":
         _backfill_dates(args)
+
+    elif args.command == "list-ready":
+        _list_ready(args)
 
 
 def _backfill_dates(args) -> None:
@@ -239,6 +286,70 @@ def _backfill_dates(args) -> None:
         f"{skipped_no_exif} had no EXIF date, "
         f"{skipped_missing_sidecar} had no sidecar."
     )
+
+
+def _list_ready(args) -> None:
+    """List images whose sidecar has can_publish: true.
+
+    Scans a single image file, or a directory non-recursively. For each
+    image, looks for its core sidecar (image.json), falling back to the
+    sibling social sidecar (image.social.json). Prints the image path for
+    every sidecar flagged can_publish: true.
+
+    Output paths:
+      - with --image-root: relative to the image root (reusable with --image-root)
+      - without: absolute paths
+
+    stdout is machine-readable (one matching image path per line);
+    informational messages go to stderr.
+    """
+    if args.image_root:
+        abs_path, _rel = resolve_image_and_relative(args.image_root, args.path)
+        root_abs = os.path.realpath(args.image_root)
+    else:
+        abs_path = os.path.abspath(args.path)
+        root_abs = None
+
+    if not os.path.exists(abs_path):
+        print(f"Path not found: {abs_path}", file=sys.stderr)
+        sys.exit(1)
+
+    if os.path.isdir(abs_path):
+        image_paths = list(iter_images(abs_path))
+    elif is_image_file(abs_path):
+        image_paths = [abs_path]
+    else:
+        print(f"Not an image file: {abs_path}", file=sys.stderr)
+        sys.exit(1)
+
+    ready = []
+    for image_path in image_paths:
+        core = sidecar_path_for_image(image_path)
+        base, _ext = os.path.splitext(image_path)
+        candidates = [core, base + ".social.json"]
+
+        sidecar_file = next((c for c in candidates if os.path.exists(c)), None)
+        if sidecar_file is None:
+            print(f"No sidecar for {image_path}", file=sys.stderr)
+            continue
+
+        try:
+            sidecar = Sidecar.load(sidecar_file)
+        except Exception as e:
+            print(f"Error reading {sidecar_file}: {e}", file=sys.stderr)
+            continue
+
+        if sidecar.can_publish:
+            if root_abs is not None:
+                ready.append(os.path.relpath(os.path.realpath(image_path), start=root_abs))
+            else:
+                ready.append(os.path.abspath(image_path))
+
+    for p in ready:
+        print(p)
+
+    if not ready:
+        print("No images ready to publish (can_publish: true).", file=sys.stderr)
 
 
 if __name__ == "__main__":
