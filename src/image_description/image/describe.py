@@ -1,9 +1,9 @@
 import os
-from typing import List
+from typing import List, Optional
 
 from ..paths import is_image_file, iter_images, sidecar_path_for_image
 from ..sidecar import Sidecar
-from .iptc import show_image_iptc_meta, write_iptc_meta
+from .iptc import get_exif_date, show_image_iptc_meta, write_iptc_meta
 from .openai_client import generate_openai_description_and_keywords
 
 
@@ -62,16 +62,30 @@ def build_hashtags(keywords: List[str]) -> str:
     return " ".join(tags)
 
 
-def process_image(image_path: str, preset: str, overwrite: bool = False) -> None:
+def process_image(
+    image_path: str,
+    preset: str,
+    overwrite: bool = False,
+    max_side: Optional[int] = None,
+    model: str = "gpt-4o-mini",
+    provider: Optional[str] = None,
+    credential_path: Optional[str] = None,
+) -> None:
     """Process a single image and write a JSON sidecar.
 
     If a sidecar already exists and overwrite is False, the image will be skipped
-    early (before any OpenAI calls) to avoid unnecessary network usage.
+    early (before any model calls) to avoid unnecessary network usage.
 
     Args:
         image_path: Path to the image file.
-        preset: Prompt preset name to use when calling the OpenAI client.
+        preset: Prompt preset name to use when calling the model.
         overwrite: If True, existing sidecar files will be overwritten. Default False.
+        max_side: If set, downscale image in-memory before sending to the API.
+                  Longest side will not exceed this many pixels. Original file
+                  is never modified.
+        model: Model name (default gpt-4o-mini).
+        provider: Explicit galet provider; None -> routing (openai fallback).
+        credential_path: Directory with galet credential files; None -> galet defaults.
     """
     if not is_image_file(image_path):
         print(f"Skipping non-image file: {image_path}")
@@ -89,17 +103,28 @@ def process_image(image_path: str, preset: str, overwrite: bool = False) -> None
         print(f"Skipping {image_path}: sidecar {json_file_path} already exists")
         return
 
-    print(f"Processing {image_path} ({size_mb:.2f} MB)")
+    if max_side is not None:
+        print(f"Processing {image_path} ({size_mb:.2f} MB, max-side={max_side})")
+    else:
+        print(f"Processing {image_path} ({size_mb:.2f} MB)")
 
-    existing_title, existing_description, existing_keywords = show_image_iptc_meta(image_path)
+    existing_title, existing_description, existing_keywords, existing_alt_text = show_image_iptc_meta(image_path)
+    capture_datetime = get_exif_date(image_path)
 
-    vc_desc, enhanced_desc, social_caption, new_keywords = generate_openai_description_and_keywords(
+    img_desc, enhanced_desc, social_caption, new_keywords = generate_openai_description_and_keywords(
         image_path,
         existing_title,
         existing_description,
         existing_keywords,
         preset=preset,
+        max_side=max_side,
+        model=model,
+        provider=provider,
+        credential_path=credential_path,
     )
+
+    # Use existing IPTC alt text if present, otherwise the AI-generated one.
+    image_description = existing_alt_text if existing_alt_text else img_desc
 
     merged_keywords = merge_keywords(existing_keywords, new_keywords)
     hashtags = build_hashtags(merged_keywords)
@@ -108,28 +133,43 @@ def process_image(image_path: str, preset: str, overwrite: bool = False) -> None
         original_title=existing_title,
         original_description=existing_description,
         title=existing_title,
-        visually_challenged_description=vc_desc,
+        image_description=image_description,
         enhanced_description=enhanced_desc,
         keywords=merged_keywords,
         hashtags=hashtags,
         social_caption=social_caption,
+        capture_datetime=capture_datetime,
     )
 
     sidecar.save(json_file_path)
     print(f"Wrote metadata to {json_file_path}")
 
 
-def process_directory(directory: str, preset: str, overwrite: bool = False) -> None:
+def process_directory(
+    directory: str,
+    preset: str,
+    overwrite: bool = False,
+    max_side: Optional[int] = None,
+    model: str = "gpt-4o-mini",
+    provider: Optional[str] = None,
+    credential_path: Optional[str] = None,
+) -> None:
     """Process all images in a directory.
 
     Args:
         directory: Directory to search for images.
         preset: Prompt preset name to pass to process_image.
         overwrite: If True, existing sidecar files will be overwritten. Default False.
+        max_side: If set, downscale images in-memory before sending to the API.
+                  Original files are never modified.
+        model: Model name (default gpt-4o-mini).
+        provider: Explicit galet provider; None -> routing (openai fallback).
+        credential_path: Directory with galet credential files; None -> galet defaults.
     """
     for path in iter_images(directory):
         try:
-            process_image(path, preset=preset, overwrite=overwrite)
+            process_image(path, preset=preset, overwrite=overwrite, max_side=max_side,
+                          model=model, provider=provider, credential_path=credential_path)
         except Exception as e:  # noqa: BLE001
             print(f"Error processing {path}: {e}")
 
@@ -148,7 +188,14 @@ def embed_metadata(directory: str) -> None:
             continue
 
         title = sidecar.title or sidecar.original_title
-        description = sidecar.enhanced_description or sidecar.original_description
+        description = sidecar.original_description or sidecar.enhanced_description
         keywords = sidecar.keywords or []
+        alt_text = sidecar.image_description or ""
 
-        write_iptc_meta(path, title=title, description=description, keywords=keywords)
+        write_iptc_meta(
+            path,
+            title=title,
+            description=description,
+            keywords=keywords,
+            alt_text=alt_text,
+        )

@@ -7,7 +7,7 @@ PROMPT_PRESETS: Dict[str, str] = {
         "Describe the image in clear, concrete language. "
         "Avoid jargon and unnecessary words. "
         "Return JSON with the following keys: "
-        "'visually_challenged_description' (one paragraph), "
+        "'image_description' (one paragraph), "
         "'enhanced_description' (one paragraph), "
         "'hashtags' (a single string of 5-8 hashtags), "
         "'social_caption' (1-2 sentences), "
@@ -17,7 +17,7 @@ PROMPT_PRESETS: Dict[str, str] = {
         "Act as a careful, precise writer. "
         "Return two kinds of text: (A) strict alt text and (B) a short caption for social media. "
         "\n\n"
-        "A) visually_challenged_description (STRICT ALT TEXT)\n"
+        "A) image_description (IMAGE DESCRIPTION / ALT TEXT)\n"
         "- Describe only what is literally visible in the image.\n"
         "- Do not guess identity, relationships, emotions, intent, time, place, or story.\n"
         "- If something is uncertain, say so (e.g., 'a person', 'possibly a sign').\n"
@@ -34,7 +34,7 @@ PROMPT_PRESETS: Dict[str, str] = {
         "- hashtags: a single string of 5-8 relevant hashtags (include the #).\n"
         "- keywords: a list of 8-15 short keywords.\n\n"
         "Return JSON with the following keys: "
-        "'visually_challenged_description', 'enhanced_description', 'social_caption', 'hashtags', and 'keywords'. "
+        "'image_description', 'enhanced_description', 'social_caption', 'hashtags', and 'keywords'. "
         "For enhanced_description: one short paragraph that expands the literal description with a little more detail, "
         "but still avoid guessing or inventing context."
     ),
@@ -52,7 +52,7 @@ def build_prompt(
 
     return (
         f"{base_prompt}\n\n"
-        f"Here is some metadata I already have – treat it as hints, but do not copy claims that are not visible.\n\n"
+        f"Here is some metadata I already have \u2013 treat it as hints, but do not copy claims that are not visible.\n\n"
         f"Title: {title}\n"
         f"Existing description: {description}\n"
         f"Existing keywords: {kw_str}\n\n"

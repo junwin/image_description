@@ -1,0 +1,51 @@
+Create social media content for these platforms: {platforms}.
+
+You will be provided with a factual sidecar JSON. Follow these rules exactly.
+
+1) Purpose
+- Produce short, platform-appropriate post text and platform tag/hashtag lists derived from the factual sidecar. Keep the factual core separate from generated content: copy the provided sidecar exactly into the top-level "core" field. All generated writing must go under "social".
+
+2) Caption precedence
+- For captions, prefer fields in this order if present in the sidecar: "social_caption", then "enhanced_description", then "original_description". If none exist, use an empty string for the "text" value.
+
+3) Hashtag / tag derivation rules
+- If the sidecar contains an explicit "hashtags" string, parse it into an array and normalize (lower-case, remove duplicates, ensure each begins with '#').
+- Otherwise derive tags from sidecar keywords and other text fields. Use specific, descriptive tags where possible.
+- For mastodon and bluesky: return an array named "hashtags" where each entry begins with '#', lower-case, no spaces. Aim for 3-6 hashtags per platform when possible.
+- For tumblr: return a plain string array named "tags" (no leading '#'), lower-case when appropriate, 5-12 tags when possible. You may also include a "hashtags" array for tumblr, but the required tumblr tagging field is "tags" (plain strings).
+- If you cannot reasonably derive any tags/hashtags for a requested platform, return an empty array for that platform's tag field (e.g. "hashtags": [] or "tags": []). Note: the caller will treat any empty tag/hashtag array as an error condition and will fail.
+
+4) Factual grounding and tone
+- Do NOT invent visual facts that are not present in the sidecar. Only describe things visible or plainly derivable from the sidecar fields.
+- Keep tone concise, neutral, and observant. Do not include opinions, made-up people, or events.
+
+5) Output shape and format
+- Respond ONLY with a single JSON object encoded in UTF-8. Do not include any explanatory text or markdown fences.
+- The top-level JSON keys must be exactly: "core" and "social".
+  - "core": must be an exact copy of the provided sidecar JSON (do not add, remove, or alter fields).
+  - "social": an object mapping platform names (e.g., "mastodon", "bluesky", "tumblr") to objects with at least these keys:
+    - "text": a short platform-appropriate caption string (may be empty string if no caption data exists).
+    - platform tag field(s):
+      - for mastodon/bluesky: "hashtags" (array of strings like "#sunset").
+      - for tumblr: "tags" (array of plain strings, no leading '#'). You may also include "hashtags" for tumblr but keep "tags" present.
+
+6) Validation guidance for the model
+- If no reasonable hashtags/tags can be derived for a platform, return an empty array for that platform's tag field and keep the caption minimal. Do NOT return error messages in the JSON. The caller will treat empty arrays as a validation error and will print a warning and exit non-zero.
+
+7) Platform style guidance (brief)
+- mastodon: concise 1-2 short sentences, up to 500 characters.
+- bluesky: very concise, ~1 short sentence, ~240 char limit.
+- tumblr: allow a slightly longer descriptive sentence or two.
+
+8) Examples (illustrative only)
+Given sidecar:
+{ "title": "Sunset", "original_description": "A sunset over rolling hills.", "enhanced_description": "Warm orange glow over low hills, scattered trees.", "keywords": ["sunset", "hills", "goldenhour"], "hashtags": "" }
+Return JSON (example):
+{ "core": { /* exact sidecar copy */ }, "social": {
+    "mastodon": { "text": "Warm orange sunset over rolling hills.", "hashtags": ["#sunset", "#hills", "#goldenhour"] },
+    "bluesky": { "text": "Sunset over rolling hills.", "hashtags": ["#sunset", "#goldenhour"] },
+    "tumblr": { "text": "Warm orange glow over low hills, scattered trees.", "tags": ["sunset", "hills", "golden hour"] }
+  }
+}
+
+IMPORTANT: follow the rules exactly. The caller will validate that each requested platform returns a non-empty tag/hashtag array and will fail if any platform's required tag array is empty.

@@ -8,7 +8,7 @@ from ..sidecar import Sidecar
 
 
 PROMPT_TEMPLATE = """Act as a thoughtful artist and writer. Prepare a Mastodon, tumblr and bsky post for a new photograph I've taken.
-please include suggested hashtags (5 or 6) and text for the visually challenged.
+please include suggested hashtags (5 or 6) and text for image description.
 
 Consider John Berger's separation of a) what the image is  b) what is it trying to say  - I would like to swing the balance to what the image is trying to say.
 
@@ -17,7 +17,7 @@ Here is some metadata I already have  - this typically deals with what the image
 Title: {title}
 Original description: {original_description}
 Enhanced description: {enhanced_description}
-Visually challenged description: {visually_challenged_description}
+Image description: {image_description}
 Keywords: {keywords}
 Existing hashtags: {hashtags}
 
@@ -36,7 +36,7 @@ def build_prompt(meta: Dict[str, Any]) -> str:
     title = meta.get("title") or meta.get("original_title") or ""
     original_description = meta.get("original_description", "")
     enhanced_description = meta.get("enhanced_description", "")
-    visually_challenged_description = meta.get("visually_challenged_description", "")
+    image_description = meta.get("image_description", "")
     keywords = meta.get("keywords", [])
     if isinstance(keywords, list):
         keywords_str = ", ".join(keywords)
@@ -48,17 +48,28 @@ def build_prompt(meta: Dict[str, Any]) -> str:
         title=title,
         original_description=original_description,
         enhanced_description=enhanced_description,
-        visually_challenged_description=visually_challenged_description,
+        image_description=image_description,
         keywords=keywords_str,
         hashtags=hashtags,
     )
 
 
+def prompt_from_sidecar_path(json_path: str) -> str:
+    """Load a JSON sidecar and return the raw prompt text for social post.
+
+    This helper provides a clean way for CLIs to request only the prompt
+    text (without surrounding headings or code fences).
+    """
+    sidecar = Sidecar.load(json_path)
+    meta = sidecar.to_dict()
+    return build_prompt(meta)
+
+
 def _yaml_escape(s: str) -> str:
     if any(c in s for c in [":", "-", "#", "{", "}", "[", "]", ",", "&", "*", "?", "|", ">", "%", "@", "`", '"', "'"]):
         return '"' + s.replace('"', '\\"') + '"'
-    if "\n" in s:
-        return "|-\n  " + s.replace("\n", "\n  ")
+    if "\\n" in s:
+        return "|-\\n  " + s.replace("\\n", "\\n  ")
     return s
 
 
@@ -79,7 +90,7 @@ def _markdown_for_meta(
     original_title = meta.get("original_title", "")
     original_description = meta.get("original_description", "")
     enhanced_description = meta.get("enhanced_description", "")
-    visually_challenged_description = meta.get("visually_challenged_description", "")
+    image_description = meta.get("image_description", "")
     keywords = meta.get("keywords", [])
     hashtags = meta.get("hashtags", "")
 
@@ -112,9 +123,9 @@ def _markdown_for_meta(
         lines.append(enhanced_description)
         lines.append("")
 
-    if visually_challenged_description:
-        lines.append(f"{('#' * sub_h)} Description for the visually challenged")
-        lines.append(visually_challenged_description)
+    if image_description:
+        lines.append(f"{('#' * sub_h)} Image description")
+        lines.append(image_description)
         lines.append("")
 
     if keywords:
@@ -155,7 +166,7 @@ def _yaml_for_meta(meta: Dict[str, Any], image_path: Optional[str], include_prom
     for key in [
         "original_title",
         "original_description",
-        "visually_challenged_description",
+        "image_description",
         "enhanced_description",
         "hashtags",
     ]:
@@ -371,11 +382,20 @@ def main() -> None:
             "JSON filename. NOTE: cannot be used when passing multiple JSON files."
         ),
     )
-    parser.add_argument(
+
+    # Mutually exclusive control for prompt-related output
+    prompt_group = parser.add_mutually_exclusive_group()
+    prompt_group.add_argument(
         "--no-prompt",
         action="store_true",
         help="Do not include the social-post prompt in the output.",
     )
+    prompt_group.add_argument(
+        "--prompt-only",
+        action="store_true",
+        help="Output only the prompt for social post (plain text). No headings or other sections.",
+    )
+
     parser.add_argument(
         "--copy-images",
         action="store_true",
@@ -399,17 +419,27 @@ def main() -> None:
 
     args = parser.parse_args()
 
+    # If prompt-only was requested, bypass the normal full document renderer and
+    # print only the raw prompt(s). For multiple sidecars we'll print each
+    # prompt separated by a blank line.
     try:
-        output = build_from_json(
-            args.json_path if len(args.json_path) > 1 else args.json_path[0],
-            fmt=args.format,
-            image_path=args.image_path,
-            include_prompt=not args.no_prompt,
-            copy_images=args.copy_images,
-            assets_dir=args.assets_dir,
-            asset_url_prefix=args.asset_url_prefix,
-            document_title=args.title,
-        )
+        if args.prompt_only:
+            # args.json_path is a list (nargs='+')
+            prompts: List[str] = []
+            for jp in args.json_path:
+                prompts.append(prompt_from_sidecar_path(jp))
+            output = "\n\n".join(prompts).rstrip() + "\n"
+        else:
+            output = build_from_json(
+                args.json_path if len(args.json_path) > 1 else args.json_path[0],
+                fmt=args.format,
+                image_path=args.image_path,
+                include_prompt=not args.no_prompt,
+                copy_images=args.copy_images,
+                assets_dir=args.assets_dir,
+                asset_url_prefix=args.asset_url_prefix,
+                document_title=args.title,
+            )
     except Exception as e:
         sys.stderr.write(f"Error: {e}\n")
         sys.exit(2)
@@ -423,3 +453,14 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
+
+# Manual test notes:
+# If no test framework is present, verify manually with:
+# python -m src.image_description.post.post_builder \
+#   path/to/sidecar.json --prompt-only
+# This should print only the raw prompt text (no markdown headings, fences, etc.).
+# For the standard behavior try:
+# python -m src.image_description.post.post_builder path/to/sidecar.json
+# which should produce the full markdown including the Prompt for social post
+# section wrapped in a ```text fence.
