@@ -94,17 +94,26 @@ def _process_single_sidecar(sidecar_path: str, platforms: List[str], overwrite: 
     except Exception as e:
         return f"Error loading sidecar: {e}"
 
-    # When image_root is provided, ensure we can compute image_relative_path for the core.
+    # When image_root is provided, compute the image identity for the core.
+    # Option 1 contract: image_relative_path is the path relative to image_root and
+    # is the source of truth; image_filename is only the base filename.
+    # Legacy/top-level sidecars without image_relative_path fall back to the
+    # base filename.
     if image_root is not None:
-        if not sidecar.image_filename:
-            return f"Error: --image-root was provided but sidecar.image_filename is empty for {sidecar_path}"
+        candidate = sidecar.image_relative_path or sidecar.image_filename
+        if not candidate:
+            return (
+                f"Error: --image-root was provided but sidecar has neither "
+                f"image_relative_path nor image_filename for {sidecar_path}"
+            )
         try:
             # resolve_image_against_root will validate and return (abs, rel)
-            _, rel = resolve_image_against_root(image_root, sidecar.image_filename)
+            _, rel = resolve_image_against_root(image_root, candidate)
             # set in-memory; do not overwrite on disk
             sidecar.image_relative_path = rel
+            sidecar.image_filename = os.path.basename(rel)
         except SystemExit:
-            return f"Error: sidecar.image_filename resolves outside image_root for {sidecar_path}"
+            return f"Error: image path resolves outside image_root for {sidecar_path}"
 
     # Generate social content
     social_data = _generate_social_for_sidecar(sidecar, platforms)
