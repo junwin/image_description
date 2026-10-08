@@ -24,6 +24,7 @@ from typing import Any, Dict, List, Optional
 from pathlib import Path
 
 from atproto import Client
+from atproto_client.request import Request
 
 from ..sidecar import Sidecar
 from ..social_utils import build_social_text, build_alt_text
@@ -80,7 +81,7 @@ def _get_client() -> Client:
         )
         raise SystemExit(1)
 
-    client = Client()
+    client = Client(request=Request(timeout=120.0))
     try:
         client.login(handle, app_password)
     except Exception as e:
@@ -138,7 +139,7 @@ def cmd_auth(handle: str, app_password: str) -> None:
         raise SystemExit(1)
 
     # Verify credentials by attempting a login
-    client = Client()
+    client = Client(request=Request(timeout=120.0))
     try:
         client.login(handle, app_password)
     except Exception as e:
