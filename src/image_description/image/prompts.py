@@ -38,6 +38,18 @@ PROMPT_PRESETS: Dict[str, str] = {
         "For enhanced_description: one short paragraph that expands the literal description with a little more detail, "
         "but still avoid guessing or inventing context."
     ),
+    "marie-parie": (
+        "Describe the picture as someone who loves styling, collecting, and finding unusual details. "
+        "Notice the colors, textures, little decorative touches, and how the pieces work together. "
+        "Convey warmth, delight, and a hint of whimsy. "
+        "Keep it inviting and personal, with a light touch—never stiff, overly serious, or salesy. "
+        "Return JSON with the following keys: "
+        "'image_description' (one paragraph), "
+        "'enhanced_description' (one paragraph), "
+        "'social_caption' (1-2 sentences), "
+        "'hashtags' (a single string of 5-8 hashtags), "
+        "and 'keywords' (a list of 8-15 short keywords)."
+    ),
 }
 
 
