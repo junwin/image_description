@@ -13,8 +13,8 @@ def build_gallery(folder: str, image_root: Optional[str] = None,
     """Read a folder's images, or selected basenames in caller-supplied order.
 
     With image_root, folder must be relative to that root. Without it, folder
-    is a filesystem path and doubles as the web root (file values are basenames).
-    Full sidecar records are retained; only the derived file/alt aliases are set.
+    is a filesystem path and doubles as the metadata root for identity checks.
+    Output entries contain only file (a folder-relative basename) and alt.
     No source image or sidecar is changed.
     """
     if image_root is None:
@@ -91,9 +91,7 @@ def build_gallery(folder: str, image_root: Optional[str] = None,
                         is_image_file(p.name) and p.stem == Path(name).stem]
             if len(siblings) > 1:
                 raise ValueError('Ambiguous sidecar identity for {}'.format(name))
-        record['file'] = recorded_path.replace('\\', '/') if recorded_path else relative
-        record['alt'] = alt.strip()
-        records.append(record)
+        records.append({'file': name, 'alt': alt.strip()})
     return records
 
 
