@@ -37,6 +37,71 @@ What it does *not* try to be:
 
 ## CLI usage (recommended)
 
+### Build a website gallery from sidecars
+
+`gallery-builder` assembles existing image sidecars into an ordered `gallery.json`
+array. Gwen or Lumia can generate sidecars for new images first; this exporter
+does not call a model, copy images, or publish social posts.
+
+From the `image_description` checkout, process a whole folder:
+
+```bash
+python scripts/build_gallery.py "assets/Ooh La La Bijoux" \
+  --image-root ../marie-parie-web
+```
+
+For a selected gallery, give image filenames in the desired display order:
+
+```bash
+python scripts/build_gallery.py "assets/Ooh La La Bijoux" \
+  --image-root ../marie-parie-web \
+  --images "necklace.jpg" "earrings.png"
+```
+
+The same command works for a folder in `junwin.github.io` with that checkout as
+`--image-root`. After installation, `gallery-builder` is the equivalent console
+command; `python -m src.image_description.cli.gallery_builder_cli` also works
+from the source checkout.
+
+- Folder mode includes supported JPG/JPEG/PNG images directly in the folder,
+  alphabetically by filename. It does not recurse or scan JSON files as images.
+- With `--image-root`, the folder argument must be relative to the website home
+  folder. Without it, the folder itself is the image root and `file` is a basename.
+- Each selected image needs its existing `<image_stem>.json` sidecar. Every full
+  record is preserved, including custom fields, captions, hashtags, `can_publish`
+  and `publish_history`. Publishing readiness does not filter gallery selection.
+- `alt` comes from `image_description` (legacy
+  `visually_challenged_description` is accepted). `file` comes from
+  `image_relative_path`, validated against the actual image and the website root;
+  if missing, it is calculated from the image location. Paths use forward slashes
+  and remain unencoded in JSON, preserving spaces and original filenames.
+- The output is `<folder>/gallery.json`, replaced atomically after all entries
+  pass validation. An empty folder, missing sidecar, blank alt text, conflicting
+  image identity or invalid path exits with status 2 and keeps the previous
+  gallery intact. Unselected images and individual sidecars are never changed.
+- Images sharing a stem (for example `photo.jpg` and `photo.png`) cannot both use
+  `photo.json`. The image stem `gallery` is reserved for the output filename.
+- Website consumers should resolve `file` relative to the website home folder,
+  not the directory containing `gallery.json`. This matters on GitHub Pages
+  project sites hosted under a URL subdirectory.
+
+Example output entry (other sidecar fields remain present):
+
+```json
+{
+  "image_filename": "necklace.jpg",
+  "image_relative_path": "assets/Ooh La La Bijoux/necklace.jpg",
+  "image_description": "A gold-colored pendant on a fine chain.",
+  "can_publish": false,
+  "publish_history": [],
+  "file": "assets/Ooh La La Bijoux/necklace.jpg",
+  "alt": "A gold-colored pendant on a fine chain."
+}
+```
+
+Directory-based social-post generation ignores `gallery.json`; it continues to
+use the individual sidecars as the source of publishing metadata.
+
 To see the available options for the CLIs use the module invocation (recommended when running from the repo):
 
 - `python -m src.image_description.cli.image_cli --help`
