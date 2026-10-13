@@ -187,7 +187,7 @@ def main(argv: Optional[List[str]] = None) -> None:
             entries = list_files_non_recursive(os.path.realpath(image_root), rel)
             # We are only interested in sidecar JSON files (exclude .social.json)
             for e in entries:
-                if e.endswith(".json") and not e.endswith(".social.json"):
+                if e.endswith(".json") and not e.endswith(".social.json") and os.path.basename(e) != "gallery.json":
                     sidecar_paths.append(os.path.join(os.path.realpath(image_root), e))
         else:
             sidecar_paths.append(resolved_abs)
@@ -197,7 +197,7 @@ def main(argv: Optional[List[str]] = None) -> None:
             # Non-recursive: list files in the directory and pick .json files (exclude .social.json)
             for name in os.listdir(in_path):
                 full = os.path.join(in_path, name)
-                if os.path.isfile(full) and name.endswith(".json") and not name.endswith(".social.json"):
+                if os.path.isfile(full) and name.endswith(".json") and not name.endswith(".social.json") and name != "gallery.json":
                     sidecar_paths.append(full)
         else:
             sidecar_paths.append(in_path)
