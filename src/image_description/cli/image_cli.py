@@ -122,82 +122,20 @@ def main() -> None:
         # If image_root is set, validate and resolve the provided path early.
         if args.image_root:
             # resolve_image_and_relative will print errors to stderr and exit non-zero on invalid inputs.
-            abs_path, rel = resolve_image_and_relative(args.image_root, args.path)
+            abs_path, _rel = resolve_image_and_relative(args.image_root, args.path)
 
             if os.path.isdir(abs_path):
-                # Gather images in top-level of this directory (non-recursive)
-                images = list(iter_images(abs_path))
-                existed_before = {p: os.path.exists(sidecar_path_for_image(p)) for p in images}
-
-                # Process directory (this will create sidecars where appropriate)
+                # Identity fields are written atomically by the generator. Any
+                # processing error stops the directory run immediately.
                 process_directory(abs_path, preset=args.preset, overwrite=args.overwrite,
-                                  max_side=args.max_side, model=args.model,
-                                  provider=args.provider, credential_path=args.credential_path)
-
-                # Post-process sidecars to include image_relative_path when allowed.
-                for image_path in images:
-                    json_path = sidecar_path_for_image(image_path)
-                    if not os.path.exists(json_path):
-                        # Nothing to update
-                        continue
-                    if existed_before.get(image_path) and not args.overwrite:
-                        # Respect default no-overwrite policy
-                        continue
-
-                    try:
-                        sidecar = Sidecar.load(json_path)
-                    except Exception as e:
-                        print(f"Error reading sidecar {json_path}: {e}", file=sys.stderr)
-                        sys.exit(2)
-
-                    # image_filename is the bare base filename; the path relative
-                    # to image_root (which may include subdirectories) goes into
-                    # image_relative_path.
-                    sidecar.image_filename = os.path.basename(image_path)
-                    sidecar.image_relative_path = os.path.relpath(image_path, start=args.image_root)
-                    try:
-                        sidecar.save(json_path, image_root=args.image_root)
-                    except SystemExit:
-                        # sidecar.save prints its own error to stderr and exits; re-raise
-                        raise
-                    except Exception as e:
-                        print(f"Error writing updated sidecar {json_path}: {e}", file=sys.stderr)
-                        sys.exit(2)
-
+                                  image_root=args.image_root, max_side=args.max_side,
+                                  model=args.model, provider=args.provider,
+                                  credential_path=args.credential_path)
             else:
-                # Single image path case
-                abs_path = abs_path
-                json_path = sidecar_path_for_image(abs_path)
-                existed_before = os.path.exists(json_path)
-
                 process_image(abs_path, preset=args.preset, overwrite=args.overwrite,
-                              max_side=args.max_side, model=args.model,
-                              provider=args.provider, credential_path=args.credential_path)
-
-                if not os.path.exists(json_path):
-                    # process_image may have skipped this file (non-image, too large, etc.)
-                    print(f"No sidecar produced for {abs_path}", file=sys.stderr)
-                    return
-
-                if existed_before and not args.overwrite:
-                    # Respect default behavior: do not overwrite existing sidecars
-                    return
-
-                try:
-                    sidecar = Sidecar.load(json_path)
-                except Exception as e:
-                    print(f"Error reading sidecar {json_path}: {e}", file=sys.stderr)
-                    sys.exit(2)
-
-                sidecar.image_filename = os.path.basename(abs_path)
-                sidecar.image_relative_path = os.path.relpath(abs_path, start=args.image_root)
-                try:
-                    sidecar.save(json_path, image_root=args.image_root)
-                except SystemExit:
-                    raise
-                except Exception as e:
-                    print(f"Error writing updated sidecar {json_path}: {e}", file=sys.stderr)
-                    sys.exit(2)
+                              image_root=args.image_root, max_side=args.max_side,
+                              model=args.model, provider=args.provider,
+                              credential_path=args.credential_path)
 
         else:
             # No image_root: preserve existing behavior
