@@ -23,6 +23,10 @@ Run it from the repo root:
 Subcommands:
     scan <FOLDER>    Fetch engagement for every sidecar with publish_history
                      and write the data back into the sidecar files.
+    score <FOLDER>  Recompute scores from stored engagement data only -
+                     no API calls. Use after changing weights or the age
+                     curve, or on sidecars scanned before normalized_score
+                     existed.
     report <FOLDER>  Rank sidecars by engagement score (no API calls; uses
                      the data already stored by `scan`).
 
@@ -177,6 +181,43 @@ def post_age_days(sidecar: Sidecar) -> Optional[float]:
         return None
     age = (_now() - min(dates)).total_seconds() / 86400.0
     return max(age, 0.0)
+
+
+def compute_scores(sidecar: Sidecar) -> Dict[str, Any]:
+    """Recompute scores purely from data stored in the sidecar.
+
+    No API calls: uses each publish_history entry's stored engagement
+    object and the publish dates. Used by both `scan` (after fetching)
+    and the standalone `score` subcommand (recalculation only).
+
+    Returns {"raw_score", "normalized_score", "age_days", "age_factor",
+    "platforms_published"} and also stores them into sidecar.extra.
+    """
+    total_score = 0
+    platforms_published = 0
+    for entry in sidecar.publish_history:
+        if isinstance(entry, dict) and isinstance(entry.get("engagement"), dict):
+            platforms_published += 1
+            total_score += int(entry["engagement"].get("score", 0))
+
+    per_platform = total_score / platforms_published if platforms_published else 0.0
+    age_days = post_age_days(sidecar)
+    factor = age_factor(age_days) if age_days is not None else 1.0
+    normalized = round(per_platform * factor, 2)
+
+    sidecar.extra["engagement_score"] = total_score
+    sidecar.extra["normalized_score"] = normalized
+    if age_days is not None:
+        sidecar.extra["age_days"] = round(age_days, 2)
+        sidecar.extra["age_factor"] = round(factor, 3)
+
+    return {
+        "raw_score": total_score,
+        "normalized_score": normalized,
+        "age_days": age_days,
+        "age_factor": factor,
+        "platforms_published": platforms_published,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -450,30 +491,16 @@ def scan_sidecar(
             }
         )
 
-    # Stored at the top level of the sidecar JSON (preserved via Sidecar.extra).
-    sidecar.extra["engagement_score"] = total_score
-    # Normalize by platform count: a post published to fewer platforms
-    # gets a fairer comparison of per-platform engagement.
-    platforms_published = sum(
-        1 for e in sidecar.publish_history if isinstance(e, dict) and e.get("engagement")
-    )
-    per_platform = total_score / platforms_published if platforms_published else 0.0
-    # Age boost: new posts get up to 3x, decaying to ~1x after ~50 days.
-    age_days = post_age_days(sidecar)
-    factor = age_factor(age_days) if age_days is not None else 1.0
-    normalized = round(per_platform * factor, 2)
-    sidecar.extra["normalized_score"] = normalized
-    if age_days is not None:
-        sidecar.extra["age_days"] = round(age_days, 2)
-        sidecar.extra["age_factor"] = round(factor, 3)
+    # Recompute scores from the (fetched or cached) engagement data.
+    scores = compute_scores(sidecar)
     if not dry_run:
         sidecar.save(sidecar_path)
 
     return {
         "path": sidecar_path,
         "title": sidecar.title or sidecar.original_title or os.path.basename(sidecar_path),
-        "score": total_score,
-        "normalized_score": normalized,
+        "score": scores["raw_score"],
+        "normalized_score": scores["normalized_score"],
         "platforms": platform_rows,
         "errors": errors,
         "live_fetches": live_fetches,
@@ -540,6 +567,53 @@ def cmd_scan(
     print(f"\nDone. {written} engagement data for {len(paths)} sidecar(s).")
     if failures:
         print(f"{failures} platform fetch(es) failed - see messages above.", file=sys.stderr)
+
+
+def cmd_score(folder: str, as_json: bool) -> None:
+    """Recompute scores from stored engagement data only. No API calls.
+
+    Use after changing weights or the age curve, or on sidecars scanned
+    before normalized_score existed: recalculates engagement_score,
+    normalized_score, age_days and age_factor in place and saves them.
+    """
+    paths = iter_sidecar_paths(folder)
+    if not paths:
+        print(f"No sidecar files with publish_history found under: {folder}")
+        return
+
+    results: List[Dict[str, Any]] = []
+    scored = 0
+    for path in paths:
+        sidecar = Sidecar.load(path)
+        scores = compute_scores(sidecar)
+        has_engagement = scores["platforms_published"] > 0
+        if has_engagement:
+            sidecar.save(path)
+            scored += 1
+        results.append(
+            {
+                "path": path,
+                "title": sidecar.title or sidecar.original_title or os.path.basename(path),
+                **{k: v for k, v in scores.items() if v is not None},
+            }
+        )
+
+    if as_json:
+        print(json.dumps(results, indent=2, ensure_ascii=False))
+        return
+
+    print(f"{'Norm':>7}  {'Raw':>6}  {'Age':>5}  {'x':>5}  Title")
+    print("-" * 70)
+    for row in sorted(results, key=lambda r: r["normalized_score"], reverse=True):
+        age_days = row.get("age_days")
+        age = f"{age_days:.0f}" if age_days is not None else "-"
+        factor = f"{row.get('age_factor', 1.0):.2f}" if age_days is not None else "1.00"
+        print(
+            f"{row['normalized_score']:>7}  {row['raw_score']:>6}  "
+            f"{age:>5}  {factor:>5}  {row['title']}"
+        )
+    print(f"\nDone. Rescored {scored} sidecar(s) with engagement data "
+          f"({len(paths) - scored} had none). No API calls made.")
 
 
 def cmd_report(folder: str, as_json: bool, limit: int = 0, raw: bool = False) -> None:
@@ -615,6 +689,12 @@ def main(argv: Optional[List[str]] = None) -> None:
     )
     p_scan.add_argument("--json", action="store_true", help="JSON output")
 
+    p_score = sub.add_parser(
+        "score", help="Recompute scores from stored engagement data (no API calls)"
+    )
+    p_score.add_argument("folder", help="Folder to walk for sidecar JSON files")
+    p_score.add_argument("--json", action="store_true", help="JSON output")
+
     p_report = sub.add_parser("report", help="Rank sidecars by engagement score")
     p_report.add_argument("folder", help="Folder to walk for sidecar JSON files")
     p_report.add_argument("--limit", type=int, default=0, help="Show top N only")
@@ -632,6 +712,8 @@ def main(argv: Optional[List[str]] = None) -> None:
             refresh=args.refresh,
             file_delay=args.file_delay,
         )
+    elif args.command == "score":
+        cmd_score(folder=args.folder, as_json=args.json)
     elif args.command == "report":
         cmd_report(folder=args.folder, as_json=args.json, limit=args.limit, raw=args.raw)
     else:
