@@ -19,7 +19,7 @@ def add_image(folder, name, **metadata):
     return path, data
 
 
-def test_folder_export_preserves_records_and_root_relative_paths(tmp_path):
+def test_folder_export_is_compact_and_preserves_source_sidecars(tmp_path):
     folder = tmp_path / 'assets' / 'Très Chic Accessories'
     sidecar, original = add_image(folder, 'z.jpg', image_relative_path='assets/Très Chic Accessories/z.jpg')
     add_image(folder, 'A.png', can_publish=True)
@@ -27,8 +27,8 @@ def test_folder_export_preserves_records_and_root_relative_paths(tmp_path):
     (folder / 'ignore.social.json').write_text('{}')
     main(['assets/Très Chic Accessories', '--image-root', str(tmp_path)])
     records = json.loads((folder / 'gallery.json').read_text())
-    assert [r['file'] for r in records] == ['assets/Très Chic Accessories/A.png', 'assets/Très Chic Accessories/z.jpg']
-    assert records[1] == dict(original, file='assets/Très Chic Accessories/z.jpg', alt='A visible object.')
+    assert records == [{'file': 'A.png', 'alt': 'A visible object.'},
+                       {'file': 'z.jpg', 'alt': 'A visible object.'}]
     assert sidecar.read_bytes() == original_bytes
     # Existing gallery.json is not itself selected on subsequent runs.
     main(['assets/Très Chic Accessories', '--image-root', str(tmp_path)])
@@ -82,7 +82,7 @@ def test_legacy_alt_and_path_in_image_filename(tmp_path):
               visually_challenged_description='Legacy alt')
     record = build_gallery(str(tmp_path))[0]
     assert record['alt'] == 'Legacy alt'
-    assert record['image_filename'] == 'older/path/a.jpg'
+    assert record == {'file': 'a.jpg', 'alt': 'Legacy alt'}
 
 
 def test_folder_and_image_symlink_escape(tmp_path):

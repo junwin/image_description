@@ -20,6 +20,7 @@ import re
 import sys
 import urllib.request
 import urllib.error
+import urllib.parse
 from typing import Any, Dict, List, Optional, Tuple
 
 import yaml
@@ -28,10 +29,9 @@ import markdown
 CRED_PATH = "/home/junwin/credential/wordpress_com.json"
 WPCOM_AUTHORIZE_URL = "https://public-api.wordpress.com/oauth2/authorize"
 WPCOM_TOKEN_URL = "https://public-api.wordpress.com/oauth2/token"
-WPCOM_POST_URL = "https://public-api.wordpress.com/rest/v1.1/sites/{site}/posts/new"
-WPCOM_LIST_URL = "https://public-api.wordpress.com/rest/v1.1/sites/{site}/posts"
-WPCOM_GET_URL = "https://public-api.wordpress.com/rest/v1.1/sites/{site}/posts/{post_id}"
-WPCOM_GET_SLUG_URL = "https://public-api.wordpress.com/rest/v1.1/sites/{site}/posts/slug:{slug}"
+WPCOM_POSTS_URL = "https://public-api.wordpress.com/wp/v2/sites/{site}/posts"
+WPCOM_GET_URL = WPCOM_POSTS_URL + "/{post_id}"
+WPCOM_TERMS_URL = "https://public-api.wordpress.com/wp/v2/sites/{site}/{taxonomy}"
 IMAGE_BASE_URL = "https://junwin.github.io"
 
 
@@ -259,8 +259,108 @@ def _parse_jekyll_post(md_path: str) -> Dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
-#  WordPress API calls
+#  WordPress API v2 calls
 # ---------------------------------------------------------------------------
+
+def _api_request(
+    url: str,
+    token: str,
+    method: str = "GET",
+    payload: Optional[Dict[str, Any]] = None,
+) -> Any:
+    """Make an authenticated request to the WordPress.com WP REST API v2."""
+    data = json.dumps(payload).encode("utf-8") if payload is not None else None
+    headers = {"Authorization": f"Bearer {token}"}
+    if data is not None:
+        headers["Content-Type"] = "application/json"
+
+    req = urllib.request.Request(url, data=data, headers=headers, method=method)
+    try:
+        with urllib.request.urlopen(req) as resp:
+            return json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        body = e.read().decode("utf-8", errors="replace")
+        sys.stderr.write(f"WordPress API error: HTTP {e.code}\n{body}\n")
+        raise SystemExit(1)
+
+
+def _wp_v2_text(value: Any) -> str:
+    """Return editable or rendered text from a WP REST API v2 text field."""
+    if isinstance(value, dict):
+        return value.get("raw") or value.get("rendered") or ""
+    return value or ""
+
+
+def _normalize_v2_post(post: Dict[str, Any]) -> Dict[str, Any]:
+    """Convert a v2 post to the shape used by this CLI and wp_import_cli."""
+    embedded = post.get("_embedded", {}) or {}
+    term_groups = embedded.get("wp:term", []) or []
+    categories: Dict[str, Dict[str, Any]] = {}
+    tags: Dict[str, Dict[str, Any]] = {}
+    for group in term_groups:
+        for term in group or []:
+            normalized = {
+                "ID": term.get("id"),
+                "name": term.get("name", ""),
+                "slug": term.get("slug", ""),
+            }
+            key = term.get("slug") or str(term.get("id", ""))
+            if term.get("taxonomy") == "category":
+                categories[key] = normalized
+            elif term.get("taxonomy") == "post_tag":
+                tags[key] = normalized
+
+    featured_image = ""
+    featured_media = embedded.get("wp:featuredmedia", []) or []
+    if featured_media:
+        featured_image = featured_media[0].get("source_url", "")
+
+    return {
+        **post,
+        "ID": post.get("id"),
+        "title": _wp_v2_text(post.get("title")),
+        "content": _wp_v2_text(post.get("content")),
+        "excerpt": _wp_v2_text(post.get("excerpt")),
+        "URL": post.get("link", ""),
+        "categories": categories,
+        "tags": tags,
+        "featured_image": featured_image,
+    }
+
+
+def _term_names(value: str) -> List[str]:
+    """Split the comma-separated taxonomy format used by Jekyll front matter."""
+    return [name.strip() for name in value.split(",") if name.strip()]
+
+
+def _resolve_term_ids(
+    site: str,
+    token: str,
+    taxonomy: str,
+    names: List[str],
+) -> List[int]:
+    """Resolve term names to IDs, creating terms that do not yet exist."""
+    ids: List[int] = []
+    base_url = WPCOM_TERMS_URL.format(
+        site=urllib.parse.quote(site, safe=""), taxonomy=taxonomy
+    )
+    for name in names:
+        query = urllib.parse.urlencode({"search": name, "per_page": "100"})
+        matches = _api_request(f"{base_url}?{query}", token)
+        exact = next(
+            (
+                term
+                for term in matches
+                if str(term.get("name", "")).casefold() == name.casefold()
+            ),
+            None,
+        )
+        term = exact or _api_request(base_url, token, "POST", {"name": name})
+        term_id = term.get("id")
+        if term_id is not None:
+            ids.append(int(term_id))
+    return ids
+
 
 def _post_to_wordpress(
     site: str,
@@ -272,35 +372,26 @@ def _post_to_wordpress(
     categories: str,
     tags: str,
 ) -> Dict[str, Any]:
-    """POST a new post to WordPress.com. Returns the decoded JSON response."""
-
-    payload = json.dumps({
+    """POST a new post through the WordPress.com WP REST API v2."""
+    payload: Dict[str, Any] = {
         "title": title,
         "content": html_content,
         "status": status,
         "excerpt": excerpt,
-        "categories": categories,
-        "tags": tags,
-    }).encode("utf-8")
-
-    url = WPCOM_POST_URL.format(site=site)
-    req = urllib.request.Request(
-        url,
-        data=payload,
-        headers={
-            "Authorization": f"Bearer {token}",
-            "Content-Type": "application/json",
-        },
-        method="POST",
+    }
+    category_ids = _resolve_term_ids(
+        site, token, "categories", _term_names(categories)
     )
+    tag_ids = _resolve_term_ids(site, token, "tags", _term_names(tags))
+    if category_ids:
+        payload["categories"] = category_ids
+    if tag_ids:
+        payload["tags"] = tag_ids
 
-    try:
-        with urllib.request.urlopen(req) as resp:
-            return json.loads(resp.read().decode("utf-8"))
-    except urllib.error.HTTPError as e:
-        body = e.read().decode("utf-8", errors="replace")
-        sys.stderr.write(f"WordPress API error: HTTP {e.code}\n{body}\n")
-        raise SystemExit(1)
+    url = WPCOM_POSTS_URL.format(site=urllib.parse.quote(site, safe=""))
+    return _normalize_v2_post(
+        _api_request(url, token, method="POST", payload=payload)
+    )
 
 
 def _list_posts(
@@ -309,26 +400,17 @@ def _list_posts(
     status: Optional[str] = None,
     number: int = 50,
 ) -> List[Dict[str, Any]]:
-    """Fetch posts from WordPress.com. Returns list of post dicts."""
-    params = {"number": str(number)}
-    if status:
-        params["status"] = status
-
-    url = WPCOM_LIST_URL.format(site=site) + "?" + urllib.parse.urlencode(params)
-    req = urllib.request.Request(
-        url,
-        headers={"Authorization": f"Bearer {token}"},
-        method="GET",
-    )
-
-    try:
-        with urllib.request.urlopen(req) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-            return data.get("posts", [])
-    except urllib.error.HTTPError as e:
-        body = e.read().decode("utf-8", errors="replace")
-        sys.stderr.write(f"WordPress API error: HTTP {e.code}\n{body}\n")
-        raise SystemExit(1)
+    """Fetch posts from WordPress.com. Returns normalized post dicts."""
+    params = {
+        "per_page": str(number),
+        "context": "edit",
+        "_embed": "wp:term,wp:featuredmedia",
+        "status": status or "any",
+    }
+    url = WPCOM_POSTS_URL.format(
+        site=urllib.parse.quote(site, safe="")
+    ) + "?" + urllib.parse.urlencode(params)
+    return [_normalize_v2_post(post) for post in _api_request(url, token)]
 
 
 def _get_post(
@@ -337,20 +419,13 @@ def _get_post(
     post_id: str,
 ) -> Dict[str, Any]:
     """Fetch a single post by ID from WordPress.com."""
-    url = WPCOM_GET_URL.format(site=site, post_id=post_id)
-    req = urllib.request.Request(
-        url,
-        headers={"Authorization": f"Bearer {token}"},
-        method="GET",
+    url = WPCOM_GET_URL.format(
+        site=urllib.parse.quote(site, safe=""), post_id=post_id
     )
-
-    try:
-        with urllib.request.urlopen(req) as resp:
-            return json.loads(resp.read().decode("utf-8"))
-    except urllib.error.HTTPError as e:
-        body = e.read().decode("utf-8", errors="replace")
-        sys.stderr.write(f"WordPress API error: HTTP {e.code}\n{body}\n")
-        raise SystemExit(1)
+    params = urllib.parse.urlencode({
+        "context": "edit", "_embed": "wp:term,wp:featuredmedia"
+    })
+    return _normalize_v2_post(_api_request(f"{url}?{params}", token))
 
 
 def _get_post_by_slug(
@@ -359,20 +434,19 @@ def _get_post_by_slug(
     slug: str,
 ) -> Dict[str, Any]:
     """Fetch a single post by slug from WordPress.com."""
-    url = WPCOM_GET_SLUG_URL.format(site=site, slug=slug)
-    req = urllib.request.Request(
-        url,
-        headers={"Authorization": f"Bearer {token}"},
-        method="GET",
-    )
-
-    try:
-        with urllib.request.urlopen(req) as resp:
-            return json.loads(resp.read().decode("utf-8"))
-    except urllib.error.HTTPError as e:
-        body = e.read().decode("utf-8", errors="replace")
-        sys.stderr.write(f"WordPress API error: HTTP {e.code}\n{body}\n")
+    params = urllib.parse.urlencode({
+        "slug": slug,
+        "context": "edit",
+        "_embed": "wp:term,wp:featuredmedia",
+    })
+    url = WPCOM_POSTS_URL.format(
+        site=urllib.parse.quote(site, safe="")
+    ) + "?" + params
+    posts = _api_request(url, token)
+    if not posts:
+        sys.stderr.write(f"WordPress post not found for slug: {slug}\n")
         raise SystemExit(1)
+    return _normalize_v2_post(posts[0])
 
 
 # ---------------------------------------------------------------------------

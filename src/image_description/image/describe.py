@@ -70,6 +70,7 @@ def process_image(
     model: str = "gpt-4o-mini",
     provider: Optional[str] = None,
     credential_path: Optional[str] = None,
+    image_root: Optional[str] = None,
 ) -> None:
     """Process a single image and write a JSON sidecar.
 
@@ -80,6 +81,9 @@ def process_image(
         image_path: Path to the image file.
         preset: Prompt preset name to use when calling the model.
         overwrite: If True, existing sidecar files will be overwritten. Default False.
+        image_root: Optional root used to record image_relative_path. The image
+                    must resolve inside this root. Without a root, the basename
+                    is recorded as the relative path.
         max_side: If set, downscale image in-memory before sending to the API.
                   Longest side will not exceed this many pixels. Original file
                   is never modified.
@@ -102,6 +106,25 @@ def process_image(
     if os.path.exists(json_file_path) and not overwrite:
         print(f"Skipping {image_path}: sidecar {json_file_path} already exists")
         return
+
+    # Image identity is essential sidecar data. Calculate it before constructing
+    # and saving the sidecar so an incomplete sidecar is never written.
+    image_abs = os.path.realpath(image_path)
+    if image_root is not None:
+        root_abs = os.path.realpath(image_root)
+        try:
+            common = os.path.commonpath([root_abs, image_abs])
+        except ValueError as exc:
+            raise ValueError(
+                f"Image path cannot be resolved against image root: {image_path}"
+            ) from exc
+        if common != root_abs:
+            raise ValueError(
+                f"Image path is outside image root: image={image_abs}, root={root_abs}"
+            )
+        image_relative_path = os.path.relpath(image_abs, start=root_abs)
+    else:
+        image_relative_path = os.path.basename(image_abs)
 
     if max_side is not None:
         print(f"Processing {image_path} ({size_mb:.2f} MB, max-side={max_side})")
@@ -139,9 +162,11 @@ def process_image(
         hashtags=hashtags,
         social_caption=social_caption,
         capture_datetime=capture_datetime,
+        image_filename=os.path.basename(image_abs),
+        image_relative_path=image_relative_path,
     )
 
-    sidecar.save(json_file_path)
+    sidecar.save(json_file_path, image_root=image_root)
     print(f"Wrote metadata to {json_file_path}")
 
 
@@ -153,6 +178,7 @@ def process_directory(
     model: str = "gpt-4o-mini",
     provider: Optional[str] = None,
     credential_path: Optional[str] = None,
+    image_root: Optional[str] = None,
 ) -> None:
     """Process all images in a directory.
 
@@ -160,6 +186,7 @@ def process_directory(
         directory: Directory to search for images.
         preset: Prompt preset name to pass to process_image.
         overwrite: If True, existing sidecar files will be overwritten. Default False.
+        image_root: Optional root used to record each image's relative path.
         max_side: If set, downscale images in-memory before sending to the API.
                   Original files are never modified.
         model: Model name (default gpt-4o-mini).
@@ -167,11 +194,9 @@ def process_directory(
         credential_path: Directory with galet credential files; None -> galet defaults.
     """
     for path in iter_images(directory):
-        try:
-            process_image(path, preset=preset, overwrite=overwrite, max_side=max_side,
-                          model=model, provider=provider, credential_path=credential_path)
-        except Exception as e:  # noqa: BLE001
-            print(f"Error processing {path}: {e}")
+        process_image(path, preset=preset, overwrite=overwrite, image_root=image_root,
+                      max_side=max_side, model=model, provider=provider,
+                      credential_path=credential_path)
 
 
 def embed_metadata(directory: str) -> None:

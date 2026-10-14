@@ -1,4 +1,4 @@
-"""Export complete image sidecars to a web gallery JSON array."""
+"""Export image sidecars to a compact file/alt gallery JSON array."""
 import argparse
 import json
 import sys
@@ -11,10 +11,10 @@ from ..paths import is_image_file
 
 def main(argv: Optional[List[str]] = None) -> None:
     parser = argparse.ArgumentParser(description=(
-        'Build gallery.json from image sidecars, preserving full records and '
-        'adding file and alt aliases. Does not generate metadata or publish posts.'))
+        'Build gallery.json from image sidecars with only file and alt fields. '
+        'Filenames are relative to the gallery folder. Does not generate metadata or publish posts.'))
     parser.add_argument('folder', help='Folder to scan (non-recursive). Relative to --image-root when supplied.')
-    parser.add_argument('--image-root', help='Website home folder; gallery file paths are relative to it.')
+    parser.add_argument('--image-root', help='Root used to locate the folder and validate sidecar image_relative_path. Output filenames remain folder-relative.')
     parser.add_argument('--images', nargs='+', help='Selected filenames within the folder, in display order. Default: all images alphabetically.')
     args = parser.parse_args(argv)
     try:
