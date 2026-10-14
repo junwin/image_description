@@ -1,3 +1,4 @@
+
 #!/usr/bin/env python3
 """
 CLI for assessing engagement of published posts (issue #20: Ratings script).
@@ -38,12 +39,6 @@ Score formula (per platform, then summed):
 (Tumblr exposes a single note_count; it is recorded as `notes` and counted
 like likes. Adjust the weights below if you want a different ranking.)
 
-Caching (be nice to the platforms):
-    Each publish_history entry's engagement object stores a scanned_at
-    timestamp. If that scan is less than SCAN_CACHE_DAYS old (default 1
-    day), the cached counts are reused and the platform is NOT contacted
-    again. Use --refresh to force a refetch.
-
 Error handling:
     - A missing/deleted post (404) or a per-platform API error is recorded
       as an error for that platform; the scan continues.
@@ -52,6 +47,19 @@ Error handling:
     - After a sidecar that made live API calls, the scan pauses
       FILE_DELAY seconds (default 10) before the next file, so a full
       folder scan trickles gently instead of hammering the platforms.
+
+Caching (be nice to the platforms):
+    Each publish_history entry's engagement object stores a scanned_at
+    timestamp. If that scan is less than SCAN_CACHE_DAYS old (default 1
+    day), the cached counts are reused and the platform is NOT contacted
+    again. Use --refresh to force a refetch.
+
+Normalization:
+    Posts published to fewer platforms collect less raw engagement, so
+    alongside the raw `engagement_score` the scan stores
+    `normalized_score` = raw score / number of platforms that have
+    engagement data. `report` ranks by normalized_score (use --raw to rank
+    by the raw score instead). Post age is currently NOT factored in.
 """
 
 import argparse
@@ -402,6 +410,13 @@ def scan_sidecar(
 
     # Stored at the top level of the sidecar JSON (preserved via Sidecar.extra).
     sidecar.extra["engagement_score"] = total_score
+    # Normalize by platform count: a post published to fewer platforms
+    # gets a fairer comparison of per-platform engagement.
+    platforms_published = sum(
+        1 for e in sidecar.publish_history if isinstance(e, dict) and e.get("engagement")
+    )
+    normalized = round(total_score / platforms_published, 2) if platforms_published else 0.0
+    sidecar.extra["normalized_score"] = normalized
     if not dry_run:
         sidecar.save(sidecar_path)
 
@@ -409,6 +424,7 @@ def scan_sidecar(
         "path": sidecar_path,
         "title": sidecar.title or sidecar.original_title or os.path.basename(sidecar_path),
         "score": total_score,
+        "normalized_score": normalized,
         "platforms": platform_rows,
         "errors": errors,
         "live_fetches": live_fetches,
@@ -443,7 +459,8 @@ def cmd_scan(
         results.append(summary)
         if not as_json:
             title = summary["title"]
-            print(f"{summary['score']:>6}  {title}")
+            print(f"{summary['score']:>6}  {title}"
+                  f"  (normalized {summary['normalized_score']:g})")
             for row in summary["platforms"]:
                 if "error" in row:
                     print(f"         ! {row['platform']}: {row['error']}")
@@ -476,16 +493,19 @@ def cmd_scan(
         print(f"{failures} platform fetch(es) failed - see messages above.", file=sys.stderr)
 
 
-def cmd_report(folder: str, as_json: bool, limit: int = 0) -> None:
-    """Rank sidecars by their stored engagement_score (no API calls)."""
+def cmd_report(folder: str, as_json: bool, limit: int = 0, raw: bool = False) -> None:
+    """Rank sidecars by normalized_score (or raw score with --raw). No API calls."""
     rows: List[Dict[str, Any]] = []
     for path in iter_sidecar_paths(folder):
         sidecar = Sidecar.load(path)
-        score = sidecar.extra.get("engagement_score", 0)
+        raw_score = sidecar.extra.get("engagement_score", 0)
+        normalized = sidecar.extra.get("normalized_score", raw_score)
         n_platforms = len(sidecar.publish_history)
         rows.append(
             {
-                "score": score,
+                "score": raw_score if raw else normalized,
+                "raw_score": raw_score,
+                "normalized_score": normalized,
                 "title": sidecar.title or sidecar.original_title or os.path.basename(path),
                 "platforms": n_platforms,
                 "path": path,
@@ -499,10 +519,14 @@ def cmd_report(folder: str, as_json: bool, limit: int = 0) -> None:
         print(json.dumps(rows, indent=2, ensure_ascii=False))
         return
 
-    print(f"{'Score':>7}  {'Plat':>4}  Title")
+    column = "Raw" if raw else "Norm"
+    print(f"{column:>7}  {'Raw':>7}  {'Plat':>4}  Title")
     print("-" * 70)
     for row in rows:
-        print(f"{row['score']:>7}  {row['platforms']:>4}  {row['title']}")
+        print(
+            f"{row['score']:>7}  {row['raw_score']:>7}  "
+            f"{row['platforms']:>4}  {row['title']}"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -545,6 +569,7 @@ def main(argv: Optional[List[str]] = None) -> None:
     p_report = sub.add_parser("report", help="Rank sidecars by engagement score")
     p_report.add_argument("folder", help="Folder to walk for sidecar JSON files")
     p_report.add_argument("--limit", type=int, default=0, help="Show top N only")
+    p_report.add_argument("--raw", action="store_true", help="Rank by raw score instead of normalized")
     p_report.add_argument("--json", action="store_true", help="JSON output")
 
     args = parser.parse_args(argv)
@@ -559,7 +584,7 @@ def main(argv: Optional[List[str]] = None) -> None:
             file_delay=args.file_delay,
         )
     elif args.command == "report":
-        cmd_report(folder=args.folder, as_json=args.json, limit=args.limit)
+        cmd_report(folder=args.folder, as_json=args.json, limit=args.limit, raw=args.raw)
     else:
         parser.print_help()
         raise SystemExit(1)
