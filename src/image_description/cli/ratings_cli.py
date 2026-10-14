@@ -27,6 +27,7 @@ Subcommands:
 
 Options:
     --platforms p1,p2   Only query these platforms (default: all)
+    --refresh           Refetch even if cached data is less than a day old
     --dry-run           Fetch but do not write anything back
     --json              Print machine-readable JSON output
 
@@ -34,6 +35,12 @@ Score formula (per platform, then summed):
     score = likes * 1 + reposts * 2 + comments * 3
 (Tumblr exposes a single note_count; it is recorded as `notes` and counted
 like likes. Adjust the weights below if you want a different ranking.)
+
+Caching (be nice to the platforms):
+    Each publish_history entry's engagement object stores a scanned_at
+    timestamp. If that scan is less than SCAN_CACHE_DAYS old (default 1
+    day), the cached counts are reused and the platform is NOT contacted
+    again. Use --refresh to force a refetch.
 
 Error handling:
     - A missing/deleted post (404) or a per-platform API error is recorded
@@ -47,7 +54,7 @@ import json
 import os
 import sys
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 from ..sidecar import Sidecar
@@ -61,14 +68,19 @@ WEIGHT_COMMENTS = 3
 REQUEST_DELAY = 0.5     # seconds to sleep between platform API calls
 MAX_RETRIES = 3         # retries for rate-limit (429) responses
 RETRY_BASE_DELAY = 5    # seconds; doubles each retry (5, 10, 20)
+SCAN_CACHE_DAYS = 1     # reuse cached engagement younger than this
 
 
 # ---------------------------------------------------------------------------
 #  engagement schema
 # ---------------------------------------------------------------------------
 
+def _now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
 def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return _now().isoformat()
 
 
 def make_engagement(
@@ -89,6 +101,26 @@ def make_engagement(
     if notes is not None:
         data["notes"] = notes
     return data
+
+
+def engagement_is_fresh(engagement: Any) -> bool:
+    """True if a stored engagement object was scanned less than a day ago.
+
+    Anything missing, malformed, or with an unparsable timestamp is
+    treated as stale (so it is refetched).
+    """
+    if not isinstance(engagement, dict):
+        return False
+    scanned_at = engagement.get("scanned_at")
+    if not isinstance(scanned_at, str) or not scanned_at.strip():
+        return False
+    try:
+        scanned = datetime.fromisoformat(scanned_at.replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    if scanned.tzinfo is None:
+        scanned = scanned.replace(tzinfo=timezone.utc)
+    return _now() - scanned < timedelta(days=SCAN_CACHE_DAYS)
 
 
 # ---------------------------------------------------------------------------
@@ -293,8 +325,12 @@ def scan_sidecar(
     sidecar_path: str,
     platforms: Optional[List[str]] = None,
     dry_run: bool = False,
+    refresh: bool = False,
 ) -> Dict[str, Any]:
     """Scan one sidecar: fetch engagement for each platform in publish_history.
+
+    Cached engagement scanned less than SCAN_CACHE_DAYS ago is reused and
+    the platform is not contacted again, unless refresh is True.
 
     Returns a summary dict: {"path", "title", "score", "platforms", "errors"}.
     """
@@ -313,6 +349,23 @@ def scan_sidecar(
             continue
         if platform not in FETCHERS:
             platform_rows.append({"platform": platform, "skipped": "unsupported"})
+            continue
+
+        cached = entry.get("engagement")
+        if not refresh and engagement_is_fresh(cached):
+            # Be nice: reuse data scanned less than a day ago.
+            score = int(cached.get("score", 0))
+            total_score += score
+            platform_rows.append(
+                {
+                    "platform": platform,
+                    "likes": cached.get("likes", 0),
+                    "reposts": cached.get("reposts", 0),
+                    "comments": cached.get("comments", 0),
+                    "score": score,
+                    "cached": True,
+                }
+            )
             continue
 
         try:
@@ -356,7 +409,13 @@ def scan_sidecar(
 #  subcommands
 # ---------------------------------------------------------------------------
 
-def cmd_scan(folder: str, platforms: Optional[List[str]], dry_run: bool, as_json: bool) -> None:
+def cmd_scan(
+    folder: str,
+    platforms: Optional[List[str]],
+    dry_run: bool,
+    as_json: bool,
+    refresh: bool,
+) -> None:
     paths = iter_sidecar_paths(folder)
     if not paths:
         print(f"No sidecar files with publish_history found under: {folder}")
@@ -367,7 +426,9 @@ def cmd_scan(folder: str, platforms: Optional[List[str]], dry_run: bool, as_json
     results: List[Dict[str, Any]] = []
     failures = 0
     for path in paths:
-        summary = scan_sidecar(path, platforms=platforms, dry_run=dry_run)
+        summary = scan_sidecar(
+            path, platforms=platforms, dry_run=dry_run, refresh=refresh
+        )
         results.append(summary)
         if not as_json:
             title = summary["title"]
@@ -379,10 +440,11 @@ def cmd_scan(folder: str, platforms: Optional[List[str]], dry_run: bool, as_json
                 elif "skipped" in row:
                     print(f"         - {row['platform']}: skipped ({row['skipped']})")
                 else:
+                    marker = " (cached)" if row.get("cached") else ""
                     print(
                         f"         {row['platform']}: "
                         f"likes={row['likes']} reposts={row['reposts']} "
-                        f"comments={row['comments']} (score {row['score']})"
+                        f"comments={row['comments']} (score {row['score']}){marker}"
                     )
         elif summary["errors"]:
             failures += len(summary["errors"])
@@ -448,6 +510,10 @@ def main(argv: Optional[List[str]] = None) -> None:
         help="Comma-separated platform filter (default: all known platforms)",
     )
     p_scan.add_argument(
+        "--refresh", action="store_true",
+        help="Refetch even if cached data is less than a day old",
+    )
+    p_scan.add_argument(
         "--dry-run", action="store_true",
         help="Fetch but do not write anything back",
     )
@@ -466,6 +532,7 @@ def main(argv: Optional[List[str]] = None) -> None:
             platforms=_parse_platforms(args.platforms),
             dry_run=args.dry_run,
             as_json=args.json,
+            refresh=args.refresh,
         )
     elif args.command == "report":
         cmd_report(folder=args.folder, as_json=args.json, limit=args.limit)
