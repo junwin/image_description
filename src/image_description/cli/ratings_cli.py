@@ -34,12 +34,19 @@ Score formula (per platform, then summed):
     score = likes * 1 + reposts * 2 + comments * 3
 (Tumblr exposes a single note_count; it is recorded as `notes` and counted
 like likes. Adjust the weights below if you want a different ranking.)
+
+Error handling:
+    - A missing/deleted post (404) or a per-platform API error is recorded
+      as an error for that platform; the scan continues.
+    - Rate-limit (429) responses are retried with exponential backoff, and a
+      small delay is inserted between API calls to stay well within limits.
 """
 
 import argparse
 import json
 import os
 import sys
+import time
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -49,6 +56,11 @@ from ..sidecar import Sidecar
 WEIGHT_LIKES = 1
 WEIGHT_REPOSTS = 2
 WEIGHT_COMMENTS = 3
+
+# Politeness / rate-limit settings.
+REQUEST_DELAY = 0.5     # seconds to sleep between platform API calls
+MAX_RETRIES = 3         # retries for rate-limit (429) responses
+RETRY_BASE_DELAY = 5    # seconds; doubles each retry (5, 10, 20)
 
 
 # ---------------------------------------------------------------------------
@@ -211,6 +223,46 @@ def fetch_engagement(platform: str, post_id: str) -> Tuple[Dict[str, Any], int]:
 
 
 # ---------------------------------------------------------------------------
+#  fetch wrapper: rate-limit retries + error normalization
+# ---------------------------------------------------------------------------
+
+def _is_rate_limit(msg: str) -> bool:
+    """Heuristic: does an error message indicate a rate-limit response?"""
+    m = msg.lower()
+    return "429" in m or "rate limit" in m or "too many requests" in m
+
+
+def _fetch_with_retries(platform: str, post_id: str) -> Tuple[Dict[str, Any], int]:
+    """Fetch engagement, retrying with backoff on rate-limit responses.
+
+    API errors such as 404 (deleted/missing post) raise immediately;
+    rate-limit responses are retried up to MAX_RETRIES times. SystemExit
+    raised by the CLI helpers is normalized into RuntimeError so a single
+    failing post can be recorded instead of aborting the scan.
+    """
+    last_exc: Optional[Exception] = None
+    for attempt in range(MAX_RETRIES):
+        try:
+            return fetch_engagement(platform, post_id)
+        except SystemExit as e:
+            raise RuntimeError(str(e) or f"{platform}: CLI error (exit)") from e
+        except Exception as e:
+            if not _is_rate_limit(str(e)):
+                raise
+            last_exc = e
+            delay = RETRY_BASE_DELAY * (2 ** attempt)
+            print(
+                f"  rate limited on {platform}, retrying in {delay}s "
+                f"(attempt {attempt + 1}/{MAX_RETRIES})...",
+                file=sys.stderr,
+            )
+            time.sleep(delay)
+    raise RuntimeError(
+        f"{platform}: still rate limited after {MAX_RETRIES} retries ({last_exc})"
+    )
+
+
+# ---------------------------------------------------------------------------
 #  sidecar scanning
 # ---------------------------------------------------------------------------
 
@@ -264,15 +316,15 @@ def scan_sidecar(
             continue
 
         try:
-            engagement, score = fetch_engagement(platform, post_id)
-        except SystemExit:
-            # CLI helpers exit on credential errors; surface it but keep going.
-            raise
+            engagement, score = _fetch_with_retries(platform, post_id)
         except Exception as e:
-            msg = f"{platform}/{post_id}: {e}"
-            errors.append(msg)
+            # A missing/deleted post (404) or persistent API error is
+            # recorded against this platform; the scan continues.
+            errors.append(f"{platform}/{post_id}: {e}")
             platform_rows.append({"platform": platform, "error": str(e)})
             continue
+
+        time.sleep(REQUEST_DELAY)  # be polite to the platform APIs
 
         entry["engagement"] = engagement  # last scan wins (issue requirement)
         total_score += score
