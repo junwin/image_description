@@ -58,12 +58,17 @@ Normalization:
     Posts published to fewer platforms collect less raw engagement, so
     alongside the raw `engagement_score` the scan stores
     `normalized_score` = raw score / number of platforms that have
-    engagement data. `report` ranks by normalized_score (use --raw to rank
-    by the raw score instead). Post age is currently NOT factored in.
+    engagement data, multiplied by an age factor:
+        age_factor(days) = 1 + 2 * exp(-days / AGE_DECAY_TAU)
+    which starts at 3 for a brand-new post and decays to ~1 after 50 days
+    (AGE_DECAY_TAU default 10). Age is measured in days since the earliest
+    publish date in publish_history. `report` ranks by normalized_score
+    (use --raw to rank by the raw score instead).
 """
 
 import argparse
 import json
+import math
 import os
 import sys
 import time
@@ -83,6 +88,10 @@ FILE_DELAY = 10         # seconds to pause between sidecar files (live fetches)
 MAX_RETRIES = 3         # retries for rate-limit (429) responses
 RETRY_BASE_DELAY = 5    # seconds; doubles each retry (5, 10, 20)
 SCAN_CACHE_DAYS = 1     # reuse cached engagement younger than this
+
+# Age boost: multiply the score by a factor that starts at 3 for a new
+# post and decays exponentially toward 1 (about 1.01 after 50 days).
+AGE_DECAY_TAU = 10      # days; age_factor = 1 + 2 * exp(-age_days / TAU)
 
 
 # ---------------------------------------------------------------------------
@@ -135,6 +144,39 @@ def engagement_is_fresh(engagement: Any) -> bool:
     if scanned.tzinfo is None:
         scanned = scanned.replace(tzinfo=timezone.utc)
     return _now() - scanned < timedelta(days=SCAN_CACHE_DAYS)
+
+
+def age_factor(age_days: float) -> float:
+    """Engagement boost by post age: starts at 3, decays toward 1.
+
+    age_factor(0) = 3; age_factor(50) is about 1.01 with the default
+    AGE_DECAY_TAU of 10 days.
+    """
+    if age_days <= 0:
+        return 1.0 + 2.0
+    return 1.0 + 2.0 * math.exp(-age_days / AGE_DECAY_TAU)
+
+
+def post_age_days(sidecar: Sidecar) -> Optional[float]:
+    """Days since the earliest publish date in publish_history, or None."""
+    dates: List[datetime] = []
+    for entry in sidecar.publish_history:
+        if not isinstance(entry, dict):
+            continue
+        raw = entry.get("date")
+        if not isinstance(raw, str) or not raw.strip():
+            continue
+        try:
+            published = datetime.fromisoformat(raw.strip().replace("Z", "+00:00"))
+        except ValueError:
+            continue
+        if published.tzinfo is None:
+            published = published.replace(tzinfo=timezone.utc)
+        dates.append(published)
+    if not dates:
+        return None
+    age = (_now() - min(dates)).total_seconds() / 86400.0
+    return max(age, 0.0)
 
 
 # ---------------------------------------------------------------------------
@@ -415,8 +457,15 @@ def scan_sidecar(
     platforms_published = sum(
         1 for e in sidecar.publish_history if isinstance(e, dict) and e.get("engagement")
     )
-    normalized = round(total_score / platforms_published, 2) if platforms_published else 0.0
+    per_platform = total_score / platforms_published if platforms_published else 0.0
+    # Age boost: new posts get up to 3x, decaying to ~1x after ~50 days.
+    age_days = post_age_days(sidecar)
+    factor = age_factor(age_days) if age_days is not None else 1.0
+    normalized = round(per_platform * factor, 2)
     sidecar.extra["normalized_score"] = normalized
+    if age_days is not None:
+        sidecar.extra["age_days"] = round(age_days, 2)
+        sidecar.extra["age_factor"] = round(factor, 3)
     if not dry_run:
         sidecar.save(sidecar_path)
 
