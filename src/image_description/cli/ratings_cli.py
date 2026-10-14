@@ -28,6 +28,8 @@ Subcommands:
 Options:
     --platforms p1,p2   Only query these platforms (default: all)
     --refresh           Refetch even if cached data is less than a day old
+    --file-delay N      Seconds to pause between sidecars after live API
+                        calls (default 10; 0 disables)
     --dry-run           Fetch but do not write anything back
     --json              Print machine-readable JSON output
 
@@ -47,6 +49,9 @@ Error handling:
       as an error for that platform; the scan continues.
     - Rate-limit (429) responses are retried with exponential backoff, and a
       small delay is inserted between API calls to stay well within limits.
+    - After a sidecar that made live API calls, the scan pauses
+      FILE_DELAY seconds (default 10) before the next file, so a full
+      folder scan trickles gently instead of hammering the platforms.
 """
 
 import argparse
@@ -66,6 +71,7 @@ WEIGHT_COMMENTS = 3
 
 # Politeness / rate-limit settings.
 REQUEST_DELAY = 0.5     # seconds to sleep between platform API calls
+FILE_DELAY = 10         # seconds to pause between sidecar files (live fetches)
 MAX_RETRIES = 3         # retries for rate-limit (429) responses
 RETRY_BASE_DELAY = 5    # seconds; doubles each retry (5, 10, 20)
 SCAN_CACHE_DAYS = 1     # reuse cached engagement younger than this
@@ -332,10 +338,12 @@ def scan_sidecar(
     Cached engagement scanned less than SCAN_CACHE_DAYS ago is reused and
     the platform is not contacted again, unless refresh is True.
 
-    Returns a summary dict: {"path", "title", "score", "platforms", "errors"}.
+    Returns a summary dict: {"path", "title", "score", "platforms",
+    "errors", "live_fetches"}.
     """
     sidecar = Sidecar.load(sidecar_path)
     total_score = 0
+    live_fetches = 0
     errors: List[str] = []
     platform_rows: List[Dict[str, Any]] = []
 
@@ -378,6 +386,7 @@ def scan_sidecar(
             continue
 
         time.sleep(REQUEST_DELAY)  # be polite to the platform APIs
+        live_fetches += 1
 
         entry["engagement"] = engagement  # last scan wins (issue requirement)
         total_score += score
@@ -402,6 +411,7 @@ def scan_sidecar(
         "score": total_score,
         "platforms": platform_rows,
         "errors": errors,
+        "live_fetches": live_fetches,
     }
 
 
@@ -415,6 +425,7 @@ def cmd_scan(
     dry_run: bool,
     as_json: bool,
     refresh: bool,
+    file_delay: float,
 ) -> None:
     paths = iter_sidecar_paths(folder)
     if not paths:
@@ -425,7 +436,7 @@ def cmd_scan(
 
     results: List[Dict[str, Any]] = []
     failures = 0
-    for path in paths:
+    for index, path in enumerate(paths):
         summary = scan_sidecar(
             path, platforms=platforms, dry_run=dry_run, refresh=refresh
         )
@@ -448,6 +459,13 @@ def cmd_scan(
                     )
         elif summary["errors"]:
             failures += len(summary["errors"])
+
+        # Be nice: pause between files that hit the APIs. Fully-cached
+        # or skipped files do not need the pause.
+        if file_delay > 0 and summary["live_fetches"] > 0 and index < len(paths) - 1:
+            print(f"         (pausing {file_delay:g}s before next file...)",
+                  file=sys.stderr)
+            time.sleep(file_delay)
 
     if as_json:
         print(json.dumps(results, indent=2, ensure_ascii=False))
@@ -514,6 +532,11 @@ def main(argv: Optional[List[str]] = None) -> None:
         help="Refetch even if cached data is less than a day old",
     )
     p_scan.add_argument(
+        "--file-delay", type=float, default=FILE_DELAY,
+        help=f"Seconds to pause between sidecars after live API calls "
+             f"(default {FILE_DELAY}; 0 disables)",
+    )
+    p_scan.add_argument(
         "--dry-run", action="store_true",
         help="Fetch but do not write anything back",
     )
@@ -533,6 +556,7 @@ def main(argv: Optional[List[str]] = None) -> None:
             dry_run=args.dry_run,
             as_json=args.json,
             refresh=args.refresh,
+            file_delay=args.file_delay,
         )
     elif args.command == "report":
         cmd_report(folder=args.folder, as_json=args.json, limit=args.limit)
