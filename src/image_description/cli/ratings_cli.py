@@ -1,4 +1,3 @@
-
 #!/usr/bin/env python3
 """
 CLI for assessing engagement of published posts (issue #20: Ratings script).
@@ -126,12 +125,13 @@ def fetch_pixelfed(post_id: str) -> Tuple[int, int, int]:
 
 
 def fetch_tumblr(post_id: str) -> Tuple[int, int, int, int]:
-    """Tumblr: GET /v2/blog/{blog}/posts/{id}. Returns (likes, reposts, comments, notes).
+    """Tumblr: GET /v2/blog/{blog}/posts?id={post_id}. Returns (likes, reposts, comments, notes).
 
-    The posts endpoint only exposes a single note_count; individual like /
-    reblog / reply breakdowns are available via notes_info=true only on the
-    client-side notes endpoint, so here notes is the aggregate and is also
-    returned separately for scoring.
+    Fetching a single post uses the `id` query parameter on the blog posts
+    endpoint (the /posts/{x} path segment is a post-type filter, not an id).
+    This endpoint only exposes a single note_count; individual like / reblog
+    / reply breakdowns are not available here, so notes is the aggregate
+    and is also returned separately for scoring.
     """
     from . import tumblr_cli
 
@@ -144,15 +144,15 @@ def fetch_tumblr(post_id: str) -> Tuple[int, int, int, int]:
     oauth = tumblr_cli._get_oauth_session(token=token, token_secret=secret)
 
     resp = oauth.get(
-        f"{tumblr_cli.TUMBLR_API_BASE}/blog/{blog}/posts/{post_id}",
-        params={"notes_info": "false"},
+        f"{tumblr_cli.TUMBLR_API_BASE}/blog/{blog}/posts",
+        params={"id": post_id},
     )
     if resp.status_code != 200:
         raise RuntimeError(f"Tumblr API error: HTTP {resp.status_code} {resp.text[:200]}")
-    post = resp.json().get("response", {}).get("posts", [])
-    if not post:
+    posts = resp.json().get("response", {}).get("posts", [])
+    if not posts:
         raise RuntimeError(f"Tumblr post {post_id} not found on {blog}.")
-    note_count = int(post[0].get("note_count", 0))
+    note_count = int(posts[0].get("note_count", 0))
     # No breakdown available from this endpoint: report notes as likes bucket.
     return (note_count, 0, 0, note_count)
 
@@ -329,8 +329,8 @@ def cmd_scan(folder: str, platforms: Optional[List[str]], dry_run: bool, as_json
                 else:
                     print(
                         f"         {row['platform']}: "
-                        f"d{row['likes']} �{row['reposts']} ={row['comments']} "
-                        f"(score {row['score']})"
+                        f"likes={row['likes']} reposts={row['reposts']} "
+                        f"comments={row['comments']} (score {row['score']})"
                     )
         elif summary["errors"]:
             failures += len(summary["errors"])
@@ -341,7 +341,7 @@ def cmd_scan(folder: str, platforms: Optional[List[str]], dry_run: bool, as_json
     written = "would write" if dry_run else "wrote"
     print(f"\nDone. {written} engagement data for {len(paths)} sidecar(s).")
     if failures:
-        print(f"{failures} platform fetch(es) failed  see messages above.", file=sys.stderr)
+        print(f"{failures} platform fetch(es) failed - see messages above.", file=sys.stderr)
 
 
 def cmd_report(folder: str, as_json: bool, limit: int = 0) -> None:
