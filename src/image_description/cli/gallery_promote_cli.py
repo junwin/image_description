@@ -2,12 +2,16 @@
 """
 CLI to promote top-engagement images to the website gallery.
 
-Uses the `engagement_score` values written into sidecar JSON files by
-ratings_cli, ranks them, and for the top N:
+Uses the scores written into sidecar JSON files by ratings_cli, ranks them,
+and for the top N:
 
   1. copies each image into the website asset folder, and
   2. rebuilds the website gallery.json with alt text taken from the
      sidecar's image_description.
+
+Ranking uses `normalized_score` (platform-count and age adjusted) when
+present, falling back to the raw `engagement_score` for sidecars scanned
+before normalization was added. Use --raw to rank purely by raw score.
 
 gallery.json entries use the format expected by the gallery page:
 
@@ -45,6 +49,8 @@ Options:
                          (default /home/junwin/src/repos/junwin.github.io/gallery)
     --url-prefix PREFIX  URL path prefix used in gallery.json file entries
                          (default /assets/images)
+    --raw                Rank by raw engagement_score instead of
+                         normalized_score
     --merge              Append to the existing gallery.json instead of
                          replacing it
     --dry-run            Show what would happen; copy and write nothing
@@ -74,21 +80,29 @@ SUPPORTED_EXTENSIONS = [".jpg", ".jpeg", ".png", ".webp", ".gif"]
 #  ranking
 # ---------------------------------------------------------------------------
 
-def rank_sidecars(folder: str) -> List[Dict[str, Any]]:
+def rank_sidecars(folder: str, raw: bool = False) -> List[Dict[str, Any]]:
     """Return sidecars that have an engagement score, ranked by score desc.
 
-    Sidecars without a score (never scanned by ratings_cli) are excluded,
-    since ranking them would be meaningless.
+    Ranks by normalized_score (platform-count and age adjusted) with
+    fallback to the raw engagement_score. Sidecars without any score
+    (never scanned by ratings_cli) are excluded, since ranking them
+    would be meaningless.
     """
     rows: List[Dict[str, Any]] = []
     for path in iter_sidecar_paths(folder):
         sidecar = Sidecar.load(path)
-        score = sidecar.extra.get("engagement_score")
-        if not isinstance(score, (int, float)):
+        raw_score = sidecar.extra.get("engagement_score")
+        if not isinstance(raw_score, (int, float)):
             continue
+        normalized = sidecar.extra.get("normalized_score")
+        if not isinstance(normalized, (int, float)):
+            normalized = raw_score
+        score = raw_score if raw else normalized
         rows.append(
             {
                 "score": score,
+                "raw_score": raw_score,
+                "normalized_score": normalized,
                 "title": sidecar.title or sidecar.original_title or os.path.basename(path),
                 "sidecar_path": path,
                 "sidecar": sidecar,
@@ -221,15 +235,16 @@ def promote(
     url_prefix: str,
     merge: bool,
     dry_run: bool,
+    raw: bool = False,
 ) -> Dict[str, Any]:
     """Promote the top N ranked images to the website gallery.
 
     Returns a summary dict used for both console and JSON output.
     """
-    ranked = rank_sidecars(folder)
+    ranked = rank_sidecars(folder, raw=raw)
     if not ranked:
         raise ValueError(
-            f"No sidecars with an engagement_score under {folder}. "
+            f"No sidecars with an engagement score under {folder}. "
             "Run ratings_cli scan first."
         )
 
@@ -287,6 +302,7 @@ def promote(
         "scanned_folder": folder,
         "ranked": len(ranked),
         "selected_top": len(selected),
+        "ranked_by": "raw" if raw else "normalized",
         "copied": copied,
         "gallery_entries": new_entries,
         "added_to_gallery": added,
@@ -310,14 +326,16 @@ def cmd_promote(args: argparse.Namespace) -> None:
         url_prefix=args.url_prefix,
         merge=args.merge,
         dry_run=args.dry_run,
+        raw=args.raw,
     )
 
     if args.json:
         print(json.dumps(summary, indent=2, ensure_ascii=False))
         return
 
+    ranked_by = "raw engagement_score" if summary["ranked_by"] == "raw" else "normalized_score"
     print(
-        f"Ranked {summary['ranked']} sidecar(s); promoting top "
+        f"Ranked {summary['ranked']} sidecar(s) by {ranked_by}; promoting top "
         f"{summary['selected_top']} from {args.folder}"
         f"{' (dry run)' if summary['dry_run'] else ''}..."
     )
@@ -352,6 +370,7 @@ def main(argv: Optional[List[str]] = None) -> None:
     parser.add_argument("--assets", default=DEFAULT_ASSETS, help=f"Asset folder for images (default {DEFAULT_ASSETS})")
     parser.add_argument("--gallery", default=DEFAULT_GALLERY, help=f"Gallery folder containing gallery.json (default {DEFAULT_GALLERY})")
     parser.add_argument("--url-prefix", default=DEFAULT_URL_PREFIX, help=f"URL prefix for file entries (default {DEFAULT_URL_PREFIX})")
+    parser.add_argument("--raw", action="store_true", help="Rank by raw engagement_score instead of normalized_score")
     parser.add_argument("--merge", action="store_true", help="Append to the existing gallery.json instead of replacing it")
     parser.add_argument("--dry-run", action="store_true", help="Show what would happen; write nothing")
     parser.add_argument("--json", action="store_true", help="Machine-readable JSON output")
