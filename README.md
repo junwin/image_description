@@ -428,3 +428,44 @@ There are also presets for `post_builder_cli` that operate on the currently open
 
 - **Python: Build post from JSON (YAML) [module]**
 - **Python: Build post from JSON (Markdown) [module]**
+
+
+## Facebook Page photo publishing
+
+Facebook joins Mastodon, Pixelfed, Bluesky and Tumblr as a separate publishing CLI.
+It uses the same sidecar caption rules (`original_description`, with fallback to
+`image_description`, plus title and hashtags) and appends to `publish_history`
+after a successful upload. Only JPEG files are supported at present.
+
+Store the long-lived Page access token **outside the repository** as JSON:
+
+```json
+{
+  "page_id": "YOUR_FACEBOOK_PAGE_ID",
+  "page_access_token": "YOUR_LONG_LIVED_PAGE_TOKEN"
+}
+```
+
+By default the CLI reads `~/.config/facebook/page_credentials.json`, matching
+the token setup script. On another machine, set `FACEBOOK_CREDENTIAL_PATH`
+to the absolute path of your saved JSON credential file, or use
+`--credentials PATH`. Never commit the file or log its contents.
+
+From an editable installation (`pip install -e .`):
+
+```bash
+facebook post "/path/to/photo.jpg" --dry-run
+facebook post "/path/to/photo.jpg"
+facebook post "/path/to/photo.jpg" --caption-field social_caption
+```
+
+Or from a source checkout with `src` on your Python path:
+
+```bash
+python -m image_description.cli.facebook_cli post "/path/to/photo.jpg" --dry-run
+```
+
+Publishing uploads to Graph API `/{page_id}/photos`. Successful responses
+record the Facebook post ID (or photo ID when no post ID is returned) in the
+JSON sidecar. Dry runs need no Facebook credentials and do not alter sidecars.
+The Page token must have `pages_manage_posts` and `pages_read_engagement`.
