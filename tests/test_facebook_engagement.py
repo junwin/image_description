@@ -30,7 +30,8 @@ def test_facebook_engagement_counts(monkeypatch):
     monkeypatch.setattr(facebook_cli.requests, "get", fake_get)
     engagement, score = ratings_cli.fetch_engagement("facebook", "page-123_456")
     assert calls[0][0] == f"{facebook_cli.API_BASE}/page-123_456"
-    assert calls[0][1]["params"]["access_token"] == "page-token"
+    assert calls[0][1]["headers"]["Authorization"] == "Bearer page-token"
+    assert "access_token" not in calls[0][1]["params"]
     assert "reactions" in calls[0][1]["params"]["fields"]
     assert engagement["likes"] == 11
     assert engagement["reposts"] == 2
@@ -90,3 +91,18 @@ def test_facebook_graph_error_does_not_overwrite_previous_data(monkeypatch, tmp_
     assert result["errors"]
     saved = json.loads(path.read_text(encoding="utf-8"))
     assert saved["publish_history"][0]["engagement"] == old
+
+
+def test_graph_error_exposes_code_but_never_token(monkeypatch):
+    monkeypatch.setattr(facebook_cli, "load_credentials", lambda: ("page", "TOP_SECRET_TOKEN"))
+    def bad_response(*args, **kwargs):
+        response = _mock_response({"error": {
+            "message": "(#100) Unsupported field requested",
+            "code": 100,
+            "error_subcode": 33,
+        }}, status=400)
+        return response
+    monkeypatch.setattr(facebook_cli.requests, "get", bad_response)
+    with pytest.raises(RuntimeError, match=r"code 100 subcode 33") as error:
+        ratings_cli.fetch_facebook("page_456")
+    assert "TOP_SECRET_TOKEN" not in str(error.value)
