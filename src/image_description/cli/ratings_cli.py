@@ -39,7 +39,8 @@ Options:
     --json              Print machine-readable JSON output
 
 Score formula (per platform, then summed):
-    score = likes * 1 + reposts * 2 + comments * 3
+    score = likes * 1 + reposts * 0 + comments * 3
+Reposts remain recorded, but automated redistribution can distort rankings.
 (Tumblr exposes a single note_count; it is recorded as `notes` and counted
 like likes. Adjust the weights below if you want a different ranking.)
 
@@ -83,7 +84,7 @@ from ..sidecar import Sidecar
 
 # Score weights: likes, reposts/boosts/reblogs, comments/replies.
 WEIGHT_LIKES = 1
-WEIGHT_REPOSTS = 2
+WEIGHT_REPOSTS = 0
 WEIGHT_COMMENTS = 3
 
 # Politeness / rate-limit settings.
@@ -198,7 +199,16 @@ def compute_scores(sidecar: Sidecar) -> Dict[str, Any]:
     for entry in sidecar.publish_history:
         if isinstance(entry, dict) and isinstance(entry.get("engagement"), dict):
             platforms_published += 1
-            total_score += int(entry["engagement"].get("score", 0))
+            engagement = entry["engagement"]
+            # Recompute even cached scores: historical scores used repost weight 2.
+            likes = int(engagement.get("likes", 0))
+            reposts = int(engagement.get("reposts", 0))
+            comments = int(engagement.get("comments", 0))
+            score = (WEIGHT_LIKES * likes
+                     + WEIGHT_REPOSTS * reposts
+                     + WEIGHT_COMMENTS * comments)
+            engagement["score"] = score
+            total_score += score
 
     per_platform = total_score / platforms_published if platforms_published else 0.0
     age_days = post_age_days(sidecar)
