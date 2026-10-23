@@ -14,3 +14,5 @@ src/image_description/__pycache__/sidecar.cpython-311.pyc
 src/image_description/__pycache__/sidecar.cpython-311.pyc
 tests/__pycache__/test_sidecar_includes_image_filename.cpython-311-pytest-7.2.1.pyc
 tests/__pycache__/test_social_post_builder_validation.cpython-311-pytest-7.2.1.pyc
+
+*.egg-info/
