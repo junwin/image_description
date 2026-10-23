@@ -314,12 +314,56 @@ def fetch_bluesky(post_id: str) -> Tuple[int, int, int]:
     )
 
 
+
+def fetch_facebook(post_id: str) -> Tuple[int, int, int]:
+    """Facebook Page post: total reactions, shares and comments.
+
+    The Facebook photo publisher stores the Page feed post ID when available,
+    falling back to the photo ID for older/API responses. Query the stored
+    Graph object directly and let Graph API report unavailable fields/errors,
+    rather than silently recording invented engagement counts.
+    """
+    from . import facebook_cli
+
+    _page_id, token = facebook_cli.load_credentials()
+    response = facebook_cli.requests.get(
+        f"{facebook_cli.API_BASE}/{post_id}",
+        params={
+            "access_token": token,
+            "fields": "reactions.limit(0).summary(true),comments.limit(0).summary(true),shares",
+        },
+        timeout=30,
+    )
+    response.raise_for_status()
+    data = response.json()
+    if not isinstance(data, dict):
+        raise RuntimeError(f"Unexpected Facebook Graph response for {post_id}")
+    if "error" in data:
+        raise RuntimeError(f"Facebook Graph error: {data['error']}")
+
+    # Reaction count covers all reactions (LIKE, LOVE, etc.), not only LIKE.
+    reactions = data.get("reactions")
+    comments = data.get("comments")
+    if not isinstance(reactions, dict) or not isinstance(comments, dict):
+        raise RuntimeError(f"Facebook engagement summaries unavailable for {post_id}")
+    reaction_count = reactions.get("summary", {}).get("total_count")
+    comment_count = comments.get("summary", {}).get("total_count")
+    if reaction_count is None or comment_count is None:
+        raise RuntimeError(f"Facebook engagement totals unavailable for {post_id}")
+
+    shares = data.get("shares") or {}
+    if not isinstance(shares, dict):
+        raise RuntimeError(f"Unexpected Facebook share count for {post_id}")
+    return (int(reaction_count), int(shares.get("count", 0)), int(comment_count))
+
+
 # Registry: platform name -> fetcher. Add new platforms here.
 FETCHERS = {
     "mastodon": fetch_mastodon,
     "pixelfed": fetch_pixelfed,
     "tumblr": fetch_tumblr,
     "bluesky": fetch_bluesky,
+    "facebook": fetch_facebook,
 }
 
 
