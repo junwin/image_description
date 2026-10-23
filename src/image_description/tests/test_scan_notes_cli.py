@@ -6,8 +6,8 @@ from pathlib import Path
 import pytest
 from PIL import Image
 
-from src.image_description.notes.scan import build_markdown, process_scan_image
-from src.image_description.cli import scan_notes_cli
+from image_description.notes.scan import build_markdown, process_scan_image
+from image_description.cli import scan_notes_cli
 
 
 def test_build_markdown_includes_fields(tmp_path):
@@ -44,7 +44,7 @@ def test_process_scan_image_skips_existing_md(monkeypatch, tmp_path):
         return {}
 
     # monkeypatch the internal _call_model to ensure it is NOT called
-    import src.image_description.notes.scan as scan_mod
+    import image_description.notes.scan as scan_mod
 
     monkeypatch.setattr(scan_mod, "_call_model", fake_call)
 
