@@ -5,9 +5,17 @@ from typing import List, Optional, Tuple
 def run_exiftool(args: List[str]) -> Tuple[int, str, str]:
     """Run exiftool with given args, return (returncode, stdout, stderr)."""
     cmd = ["exiftool"] + args
-    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-    out, err = proc.communicate()
-    return proc.returncode, out, err
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    out_b, err_b = proc.communicate()
+    return proc.returncode, _decode(out_b), _decode(err_b)
+
+
+def _decode(data: bytes) -> str:
+    """Decode exiftool output, tolerating legacy cp1252 IPTC text."""
+    try:
+        return data.decode("utf-8")
+    except UnicodeDecodeError:
+        return data.decode("cp1252", errors="replace")
 
 
 def get_exif_date(file_path: str) -> str:
