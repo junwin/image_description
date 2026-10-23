@@ -316,32 +316,42 @@ def fetch_bluesky(post_id: str) -> Tuple[int, int, int]:
 
 
 def fetch_facebook(post_id: str) -> Tuple[int, int, int]:
-    """Facebook Page post: total reactions, shares and comments.
+    """Read Page reactions, shares and comments from Graph API.
 
-    The Facebook photo publisher stores the Page feed post ID when available,
-    falling back to the photo ID for older/API responses. Query the stored
-    Graph object directly and let Graph API report unavailable fields/errors,
-    rather than silently recording invented engagement counts.
+    Page credentials are sent in the Authorization header so exceptions
+    cannot leak the Page access token through the request URL.
     """
     from . import facebook_cli
 
     _page_id, token = facebook_cli.load_credentials()
     response = facebook_cli.requests.get(
         f"{facebook_cli.API_BASE}/{post_id}",
+        headers={"Authorization": f"Bearer {token}"},
         params={
-            "access_token": token,
             "fields": "reactions.limit(0).summary(true),comments.limit(0).summary(true),shares",
         },
         timeout=30,
     )
-    response.raise_for_status()
-    data = response.json()
+    # Parse Facebook's JSON error instead of exposing the full requests URL.
+    try:
+        data = response.json()
+    except ValueError:
+        raise RuntimeError(f"Facebook Graph HTTP {response.status_code}: non-JSON response") from None
     if not isinstance(data, dict):
         raise RuntimeError(f"Unexpected Facebook Graph response for {post_id}")
-    if "error" in data:
-        raise RuntimeError(f"Facebook Graph error: {data['error']}")
+    if response.status_code >= 400 or "error" in data:
+        err = data.get("error") or {}
+        if not isinstance(err, dict):
+            err = {}
+        message = str(err.get("message") or "Graph request failed")
+        code = err.get("code", "?")
+        subcode = err.get("error_subcode")
+        raise RuntimeError(
+            f"Facebook Graph HTTP {response.status_code} code {code}"
+            + (f" subcode {subcode}" if subcode is not None else "")
+            + f": {message}"
+        )
 
-    # Reaction count covers all reactions (LIKE, LOVE, etc.), not only LIKE.
     reactions = data.get("reactions")
     comments = data.get("comments")
     if not isinstance(reactions, dict) or not isinstance(comments, dict):
