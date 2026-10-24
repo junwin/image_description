@@ -543,3 +543,40 @@ publish network failure, check Instagram before retrying to avoid duplicates.
 ngrok requires internet access and your account may impose tunnel limits;
 if a manual ngrok agent is already running, stop it if your plan disallows
 multiple agents/tunnels.
+
+## Instagram Reels (standalone)
+
+Reels are deliberately **outside** the normal image description/publishing
+pipeline. They reuse the existing Instagram Login credentials and require an
+MP4 plus an adjacent JSON sidecar of the same stem.
+
+A simple sidecar is enough (image-specific fields are optional):
+
+```json
+{
+  "original_title": "A walk in Somerset",
+  "original_description": "A brief video from the countryside.",
+  "hashtags": "#somerset #video"
+}
+```
+
+After `pip install -e '.[ngrok]'`, run:
+
+```bash
+instagram-reel /path/to/video.mp4 --ngrok --dry-run
+instagram-reel /path/to/video.mp4 --ngrok
+instagram-reel /path/to/video.mp4 --video-url https://example.com/video.mp4
+```
+
+The ngrok mode serves **only** the selected MP4, with HTTP Range support.
+It stays available until Instagram finishes processing/publishing the Reel,
+then closes. You can use `--no-share-to-feed` to request Reels-only placement,
+or `--caption-field`, `--text`, and `--credentials` as with photo publishing.
+
+A successful publication adds an `instagram` entry to the video sidecar's
+`publish_history`. The existing photo publisher, gallery generation,
+and engagement scanning are **not** changed. Video metadata generation,
+codec conversion and Threads cross-posting are not included.
+
+This is a live publishing command: if a network failure occurs near
+`media_publish`, check Instagram before retrying to avoid duplicate Reels.
