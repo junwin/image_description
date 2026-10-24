@@ -513,3 +513,33 @@ Instagram first to avoid duplicates.
 
 Instagram automatic cross-posting to Threads has **not** been established
 for API-created posts and is not tracked by this CLI.
+
+### Instagram publishing through temporary ngrok hosting
+
+For a local JPEG that is not already available on a public site, install the
+optional extra and configure your ngrok **authtoken** (not your Instagram token)
+using the ngrok CLI/config or `NGROK_AUTHTOKEN`:
+
+```bash
+pip install -e '.[ngrok]'
+ngrok config add-authtoken YOUR_NGROK_AUTHTOKEN
+instagram post /path/to/photo.jpg --ngrok --dry-run
+instagram post /path/to/photo.jpg --ngrok
+```
+
+The `--ngrok` option starts a short-lived server bound to localhost which
+serves **only the requested JPEG** at a random path, starts a pyngrok HTTPS
+tunnel, and keeps both alive through Instagram container creation, readiness
+polling, and publishing. It closes the tunnel and server after the publish
+attempt, even on errors. No directory listing or other local file is served.
+
+`--ngrok` and `--image-url` are mutually exclusive. Both work with the
+existing caption-building, sidecar publishing history, and `--credentials`
+options. A dry run does not open a tunnel or publish anything.
+
+**Be aware:** running without `--dry-run` creates a **real public Instagram
+post**. Ensure the JPEG's matching sidecar is present. After an uncertain
+publish network failure, check Instagram before retrying to avoid duplicates.
+ngrok requires internet access and your account may impose tunnel limits;
+if a manual ngrok agent is already running, stop it if your plan disallows
+multiple agents/tunnels.
