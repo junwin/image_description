@@ -13,6 +13,9 @@ description = "Image description helper tools"
 readme = "README.md"
 requires-python = ">=3.8"
 
+[project.optional-dependencies]
+ngrok = ["pyngrok>=7,<10"]
+
 # Console scripts exposed for the CLIs implemented under image_description.cli
 [project.entry-points."console_scripts"]
 # Main CLI for the legacy blog post builder
