@@ -4,6 +4,7 @@ Matches the Facebook CLI's sidecar caption and publish-history conventions.
 Instagram fetches images over HTTPS; it does not accept local JPEG uploads.
 """
 import argparse
+from contextlib import nullcontext
 import json
 import os
 import sys
@@ -91,7 +92,7 @@ def publish_photo(image_url, caption, user_id, token, poll_attempts=10, poll_int
     return {"id": media_id, "permalink": permalink}
 
 
-def cmd_post(image_path, image_url=None, dry_run=False, caption_field=None, text=None, credentials=None):
+def cmd_post(image_path, image_url=None, dry_run=False, caption_field=None, text=None, credentials=None, use_ngrok=False):
     image = Path(image_path).expanduser().resolve()
     if not image.is_file():
         raise FileNotFoundError(image)
@@ -102,16 +103,25 @@ def cmd_post(image_path, image_url=None, dry_run=False, caption_field=None, text
     sidecar = Sidecar.load(str(sidecar_path))
     caption = build_social_text(sidecar.to_dict(), caption_field=caption_field, extra_text=text)
 
+    if image_url and use_ngrok:
+        raise ValueError("Choose --ngrok or --image-url, not both")
     if image_url:
         validate_image_url(image_url)
     if dry_run:
         print(f"DRY RUN - nothing published\nImage: {image}\nImage URL: {image_url or '(not supplied)'}\nSidecar: {sidecar_path}\nCaption:\n{caption}")
         return
-    if not image_url:
-        raise ValueError("--image-url is required for Instagram publishing")
+    if not image_url and not use_ngrok:
+        raise ValueError("--image-url or --ngrok is required for Instagram publishing")
 
     user_id, token = load_credentials(credentials)
-    result = publish_photo(image_url, caption, user_id, token)
+    if use_ngrok:
+        from .instagram_ngrok import serve_image
+        image_source = serve_image(image)
+    else:
+        image_source = nullcontext(image_url)
+    with image_source as hosted_url:
+        print(f"Instagram image URL: {hosted_url}")
+        result = publish_photo(hosted_url, caption, user_id, token)
     media_id = result["id"]
     permalink = result["permalink"]
     sidecar.add_publish_event("instagram", media_id, permalink)
@@ -126,7 +136,8 @@ def main(argv=None):
     sub = parser.add_subparsers(dest="command", required=True)
     post = sub.add_parser("post", help="Publish an image to the configured Instagram account")
     post.add_argument("image", help="Local JPEG used to find its JSON sidecar")
-    post.add_argument("--image-url", help="Publicly accessible HTTPS JPEG URL (required unless dry run)")
+    post.add_argument("--image-url", help="Publicly accessible HTTPS JPEG URL")
+    post.add_argument("--ngrok", action="store_true", help="Temporarily serve this JPEG over an ngrok HTTPS tunnel")
     post.add_argument("--dry-run", action="store_true", help="Preview without credentials, API calls or sidecar edits")
     post.add_argument("--caption-field", help="Alternative sidecar caption field")
     post.add_argument("--text", help="Additional caption text")
@@ -134,7 +145,7 @@ def main(argv=None):
     args = parser.parse_args(argv)
     try:
         if args.command == "post":
-            cmd_post(args.image, args.image_url, args.dry_run, args.caption_field, args.text, args.credentials)
+            cmd_post(args.image, args.image_url, args.dry_run, args.caption_field, args.text, args.credentials, args.ngrok)
     except (OSError, ValueError, KeyError, RuntimeError, requests.RequestException) as exc:
         print(f"Instagram publish failed: {exc}", file=sys.stderr)
         raise SystemExit(1) from exc
