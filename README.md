@@ -469,3 +469,47 @@ Publishing uploads to Graph API `/{page_id}/photos`. Successful responses
 record the Facebook post ID (or photo ID when no post ID is returned) in the
 JSON sidecar. Dry runs need no Facebook credentials and do not alter sidecars.
 The Page token must have `pages_manage_posts` and `pages_read_engagement`.
+
+
+## Instagram photo publishing
+
+Instagram publishing follows the Facebook CLI's sidecar caption and history rules.
+The Instagram Login API uses **separate** credentials and requires the JPEG to
+be accessible at a public HTTPS URL. The local image is used to locate its
+sidecar; Instagram fetches the bytes from `--image-url`. Ensure the URL points
+to the same photograph as the local file. Publishing is a real public post.
+
+Save the Instagram Login token outside the repository, by default at
+`~/.config/instagram/jdunwin_credentials.json`:
+
+```json
+{
+  "instagram_user_id": "YOUR_INSTAGRAM_ACCOUNT_ID",
+  "username": "jdunwin",
+  "access_token": "YOUR_INSTAGRAM_ACCESS_TOKEN"
+}
+```
+
+Override with `INSTAGRAM_CREDENTIAL_PATH` or `--credentials PATH`.
+Keep the token secret. This does not modify Facebook credentials.
+
+After `pip install -e .`:
+
+```bash
+instagram post "/path/to/photo.jpg" --image-url "https://example.com/photo.jpg" --dry-run
+instagram post "/path/to/photo.jpg" --image-url "https://example.com/photo.jpg"
+instagram post "/path/to/photo.jpg" --image-url "https://example.com/photo.jpg" --caption-field social_caption
+```
+
+Or run `python -m image_description.cli.instagram_cli post ...`.
+
+The publisher creates a container, polls until status `FINISHED`, calls
+`media_publish`, then attempts to retrieve the permalink. Once the publish
+response returns a media ID, a permalink lookup failure does not retry
+publication; the media ID is still recorded in `publish_history`.
+Dry runs require no credentials or network calls and never update sidecars.
+Do not repeat a publish after an uncertain network failure without checking
+Instagram first to avoid duplicates.
+
+Instagram automatic cross-posting to Threads has **not** been established
+for API-created posts and is not tracked by this CLI.
