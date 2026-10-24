@@ -35,7 +35,7 @@ def test_facebook_engagement_counts(monkeypatch):
     assert engagement["likes"] == 11
     assert engagement["reposts"] == 2
     assert engagement["comments"] == 3
-    assert score == 11 + 2 * 2 + 3 * 3
+    assert score == 11 + 3 * 3  # shares are recorded but excluded from scoring
 
 
 def test_facebook_missing_shares_is_zero(monkeypatch):
@@ -74,10 +74,10 @@ def test_facebook_sidecar_scan_updates_existing_history(monkeypatch, tmp_path):
     assert saved["publish_history"][0]["engagement"]["likes"] == 8
     assert saved["publish_history"][0]["engagement"]["reposts"] == 2
     assert saved["publish_history"][0]["engagement"]["comments"] == 1
-    assert saved["engagement_score"] == 15
+    assert saved["engagement_score"] == 11
 
 
-def test_facebook_graph_error_does_not_overwrite_previous_data(monkeypatch, tmp_path):
+def test_facebook_graph_error_preserves_counts_and_rescores_cache(monkeypatch, tmp_path):
     path = tmp_path / "sample.json"
     old = {"likes": 7, "reposts": 1, "comments": 2, "score": 15, "scanned_at": "2020-01-01T00:00:00+00:00"}
     path.write_text(json.dumps({"publish_history": [
@@ -89,4 +89,5 @@ def test_facebook_graph_error_does_not_overwrite_previous_data(monkeypatch, tmp_
     result = ratings_cli.scan_sidecar(str(path), platforms=["facebook"], refresh=True)
     assert result["errors"]
     saved = json.loads(path.read_text(encoding="utf-8"))
-    assert saved["publish_history"][0]["engagement"] == old
+    assert saved["publish_history"][0]["engagement"] == {**old, "score": 13}
+    assert saved["engagement_score"] == 13
