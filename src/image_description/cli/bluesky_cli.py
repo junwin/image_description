@@ -16,11 +16,12 @@ Auth: Bluesky uses app passwords, not OAuth. Generate one at:
 """
 
 import argparse
+import io
 import json
 import mimetypes
 import os
 import sys
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 from pathlib import Path
 
 from atproto import Client
@@ -33,6 +34,9 @@ CRED_PATH = "/home/junwin/credential/bluesky.json"
 
 # Bluesky post text limit in graphemes
 BSKY_TEXT_LIMIT = 300
+
+# Bluesky image blob limit in bytes (2 MB). Larger images are re-encoded smaller.
+BSKY_IMAGE_MAX_BYTES = 2 * 1024 * 1024
 
 
 # ---------------------------------------------------------------------------
@@ -108,6 +112,61 @@ def _load_sidecar(sidecar_path: str) -> Dict[str, Any]:
     """Load a sidecar JSON file."""
     with open(sidecar_path, "r", encoding="utf-8") as f:
         return json.load(f)
+
+
+def _fit_bluesky_image(image_path: str) -> Tuple[bytes, Optional[str]]:
+    """Return image bytes that fit under Bluesky's blob limit.
+
+    Returns ``(bytes, note)``. If the source image already fits, ``note``
+    is ``None``. Otherwise the image is re-encoded as an optimized JPEG,
+    shrinking quality and then dimensions until it fits under 2 MB.
+    """
+    with open(image_path, "rb") as f:
+        data = f.read()
+
+    if len(data) <= BSKY_IMAGE_MAX_BYTES:
+        return data, None
+
+    try:
+        from PIL import Image
+    except ImportError:
+        sys.stderr.write(
+            f"Image is {len(data)} bytes (limit {BSKY_IMAGE_MAX_BYTES}) and "
+            "Pillow is not available to resize it.\n"
+        )
+        raise SystemExit(1)
+
+    img = Image.open(io.BytesIO(data))
+    original_size = img.size
+    if img.mode != "RGB":
+        img = img.convert("RGB")
+
+    quality = 90
+    while True:
+        buf = io.BytesIO()
+        img.save(buf, format="JPEG", quality=quality, optimize=True)
+        data = buf.getvalue()
+
+        if len(data) <= BSKY_IMAGE_MAX_BYTES:
+            note = (
+                f"Downscaled {original_size[0]}x{original_size[1]} -> "
+                f"{img.size[0]}x{img.size[1]} (JPEG q{quality}), "
+                f"{len(data)} bytes"
+            )
+            return data, note
+
+        if quality > 40:
+            quality -= 5
+        else:
+            new_w = max(1, int(img.width * 0.85))
+            new_h = max(1, int(img.height * 0.85))
+            if new_w < 16 or new_h < 16:
+                sys.stderr.write(
+                    "Could not reduce image below Bluesky's size limit.\n"
+                )
+                raise SystemExit(1)
+            img = img.resize((new_w, new_h), Image.Resampling.LANCZOS)
+            quality = 90
 
 
 # ---------------------------------------------------------------------------
@@ -274,6 +333,12 @@ def cmd_post(
             )
         )
         print(f"Image:         {image_path}")
+        image_size = os.path.getsize(image_path)
+        if image_size > BSKY_IMAGE_MAX_BYTES:
+            print(
+                f"Note:          {image_size} bytes exceeds Bluesky's "
+                f"{BSKY_IMAGE_MAX_BYTES} byte limit; will be downscaled."
+            )
         print(f"Sidecar:       {sidecar_path}")
         print(f"Alt text:      {alt_text[:200]}{'...' if len(alt_text) > 200 else ''}")
         print("-" * 60)
@@ -287,9 +352,10 @@ def cmd_post(
     creds = _load_creds()
     handle = creds.get("handle", "").strip()
 
-    # Read image bytes
-    with open(image_path, "rb") as f:
-        image_bytes = f.read()
+    # Read image bytes, downscaling if needed to fit Bluesky's 2 MB limit.
+    image_bytes, resize_note = _fit_bluesky_image(image_path)
+    if resize_note:
+        print(resize_note)
 
     # Upload and post
     print(f"Uploading: {os.path.basename(image_path)} ...")
