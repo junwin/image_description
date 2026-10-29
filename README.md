@@ -514,6 +514,46 @@ Instagram first to avoid duplicates.
 Instagram automatic cross-posting to Threads has **not** been established
 for API-created posts and is not tracked by this CLI.
 
+### Read comments on recent Instagram posts
+
+Use the existing Instagram Login credentials to read comments on the ten most
+recent posts returned by Instagram, including posts created outside this tool:
+
+```bash
+instagram comments --posts 10
+instagram comments --posts 10 --json > instagram-comments.json
+instagram comments --posts 10 --no-replies
+instagram comments --posts 5 --credentials /path/to/instagram_credentials.json
+```
+
+Or use `python -m image_description.cli.instagram_cli comments --posts 10`.
+`--posts` defaults to 10 and must be positive. This is a read-only operation:
+it neither publishes/moderates comments nor changes local sidecars or history.
+No local images or ngrok tunnel are needed.
+
+The text report groups comments beneath each post's date, caption, media ID and
+permalink. Comment IDs, timestamps, author usernames (where returned by Meta),
+and text are shown, with replies indented beneath their parent comment. JSON
+output contains an `instagram_user_id` and a `posts` array with nested
+`comments` and `replies`. Missing author information is shown as "unknown author"
+in text output. A post with an empty comments response remains in the report.
+
+The reader follows cursor pagination for posts, comments and replies. Replies
+are included by default; use `--no-replies` to reduce requests (otherwise each
+parent comment needs its own replies request, plus any additional pages). Only
+comments exposed to the token by Instagram can be reported.
+
+The Instagram Login route requires `instagram_business_basic` and
+`instagram_business_manage_comments`. If these were already granted to your
+existing token, no credential change is needed. Requesting a permission in the
+app dashboard does not by itself establish that an existing token has that
+grant. Authorization failures print the API error and a permission hint;
+expired tokens retain their original error. Errors exit nonzero without
+printing a misleading empty or partial report. This command does not inspect
+or change token grants.
+
+API reference: [Meta Instagram comment moderation](https://developers.facebook.com/docs/instagram-platform/instagram-api-with-instagram-login/comment-moderation/).
+
 ### Instagram publishing through temporary ngrok hosting
 
 For a local JPEG that is not already available on a public site, install the
