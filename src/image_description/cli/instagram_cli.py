@@ -132,7 +132,7 @@ def cmd_post(image_path, image_url=None, dry_run=False, caption_field=None, text
 
 
 def main(argv=None):
-    parser = argparse.ArgumentParser(description="Publish a JPEG via public HTTPS URL to Instagram")
+    parser = argparse.ArgumentParser(description="Publish Instagram photos or read recent post comments")
     sub = parser.add_subparsers(dest="command", required=True)
     post = sub.add_parser("post", help="Publish an image to the configured Instagram account")
     post.add_argument("image", help="Local JPEG used to find its JSON sidecar")
@@ -142,12 +142,20 @@ def main(argv=None):
     post.add_argument("--caption-field", help="Alternative sidecar caption field")
     post.add_argument("--text", help="Additional caption text")
     post.add_argument("--credentials", help="Override credential JSON file path")
+    comments = sub.add_parser("comments", help="Read comments on recent Instagram posts")
+    comments.add_argument("--posts", type=int, default=10, help="Number of recent posts (default: 10)")
+    comments.add_argument("--credentials", help="Override credential JSON file path")
+    comments.add_argument("--json", action="store_true", help="Print a structured JSON report")
+    comments.add_argument("--no-replies", action="store_true", help="Skip comment replies to reduce API requests")
     args = parser.parse_args(argv)
     try:
         if args.command == "post":
             cmd_post(args.image, args.image_url, args.dry_run, args.caption_field, args.text, args.credentials, args.ngrok)
+        elif args.command == "comments":
+            from .instagram_comments import cmd_comments
+            cmd_comments(args.posts, args.credentials, args.json, not args.no_replies)
     except (OSError, ValueError, KeyError, RuntimeError, requests.RequestException) as exc:
-        print(f"Instagram publish failed: {exc}", file=sys.stderr)
+        print(f"Instagram {args.command} failed: {exc}", file=sys.stderr)
         raise SystemExit(1) from exc
 
 
