@@ -620,3 +620,29 @@ codec conversion and Threads cross-posting are not included.
 
 This is a live publishing command: if a network failure occurs near
 `media_publish`, check Instagram before retrying to avoid duplicate Reels.
+
+## Collect engagement stats
+
+From the source checkout:
+
+```bash
+python -m src.image_description.cli.ratings_cli scan /path/to/photos
+```
+
+The scanner reuses stats checked within the last day. For each platform post
+older than three weeks that already has stats, it then fetches with probability
+0.2 per eligible run. Weekly scans check an older post every five runs on average;
+there is no guaranteed maximum interval. Recent posts, posts without stats, and
+posts with missing or invalid publication dates are fetched normally.
+
+Override the defaults with `--older-than-weeks 3 --older-post-probability 0.2`.
+The threshold accepts non-negative weeks and the probability must be between
+0 and 1. Use probability 1 to disable sampling while retaining the one-day cache,
+or `--refresh` to bypass both the cache and sampling. Existing platform filters
+still apply.
+
+Skipped entries show `skipped (older post)` in the scan output (and
+`"skipped": "older post"` in JSON rows). They keep their saved counts and
+`scanned_at`; scores are still recalculated from stored data. Only live fetches
+incur the existing request/file delays. `--dry-run` still fetches eligible posts
+without saving changes.
