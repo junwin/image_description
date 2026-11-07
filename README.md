@@ -641,6 +641,8 @@ The threshold accepts non-negative weeks and the probability must be between
 or `--refresh` to bypass both the cache and sampling. Existing platform filters
 still apply.
 
+Scan output includes `last checked` for fetched, cached, skipped older posts,
+and failed fetches (the last successful check). JSON rows expose `scanned_at`.
 Skipped entries show `skipped (older post)` in the scan output (and
 `"skipped": "older post"` in JSON rows). They keep their saved counts and
 `scanned_at`; scores are still recalculated from stored data. Only live fetches

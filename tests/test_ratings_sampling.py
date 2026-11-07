@@ -1,6 +1,7 @@
 """Older-post sampling uses saved stats without hiding recent publications."""
 import json
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from unittest.mock import Mock
 
 import pytest
@@ -44,7 +45,10 @@ def test_probability_boundary_preserves_skipped_stats(scanner, monkeypatch, draw
     result, saved = run([original])
     assert fetch.call_count == result["live_fetches"] == expected_calls
     if not expected_calls:
-        assert result["platforms"] == [{"platform": "mastodon", "skipped": "older post"}]
+        assert result["platforms"] == [{
+            "platform": "mastodon", "skipped": "older post",
+            "scanned_at": original["engagement"]["scanned_at"],
+        }]
         assert saved["publish_history"][0]["engagement"] == original["engagement"]
         assert saved["engagement_score"] == 11
 
@@ -136,3 +140,28 @@ def test_cli_options_reach_scanner(monkeypatch):
                       "--older-post-probability", "0.1"])
     assert command.call_args.kwargs["older_than_weeks"] == 6
     assert command.call_args.kwargs["older_post_probability"] == 0.1
+
+
+@pytest.mark.parametrize("state", ["skipped", "cached", "fetched", "error"])
+def test_scan_output_includes_last_successful_check(scanner, capsys, state):
+    run, fetch = scanner
+    post = entry()
+    if state == "cached":
+        post["engagement"]["scanned_at"] = NOW.isoformat()
+    if state == "error":
+        fetch.side_effect = RuntimeError("service unavailable")
+    # Use the path returned by the scan to exercise the actual command renderer.
+    result, _ = run([post], older_post_probability=0)
+    ratings_cli.cmd_scan(
+        str(Path(result["path"]).parent), platforms=None,
+        dry_run=False, as_json=False, refresh=state in {"fetched", "error"},
+        file_delay=0, older_post_probability=0,
+    )
+    expected = NOW.isoformat() if state in {"cached", "fetched"} else post["engagement"]["scanned_at"]
+    assert f"last checked: {expected}" in capsys.readouterr().out
+
+
+def test_json_rows_include_check_timestamp(scanner):
+    run, _ = scanner
+    result, _ = run([entry()], refresh=True)
+    assert result["platforms"][0]["scanned_at"] == NOW.isoformat()

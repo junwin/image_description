@@ -554,6 +554,7 @@ def scan_sidecar(
                     "comments": cached.get("comments", 0),
                     "score": score,
                     "cached": True,
+                    "scanned_at": cached.get("scanned_at"),
                 }
             )
             continue
@@ -561,7 +562,10 @@ def scan_sidecar(
         if not refresh and skip_older_post(
             entry, older_than_weeks, older_post_probability
         ):
-            platform_rows.append({"platform": platform, "skipped": "older post"})
+            platform_rows.append({
+                "platform": platform, "skipped": "older post",
+                "scanned_at": cached.get("scanned_at"),
+            })
             continue
 
         try:
@@ -570,7 +574,10 @@ def scan_sidecar(
             # A missing/deleted post (404) or persistent API error is
             # recorded against this platform; the scan continues.
             errors.append(f"{platform}/{post_id}: {e}")
-            platform_rows.append({"platform": platform, "error": str(e)})
+            platform_rows.append({
+                "platform": platform, "error": str(e),
+                "scanned_at": cached.get("scanned_at") if isinstance(cached, dict) else None,
+            })
             continue
 
         time.sleep(REQUEST_DELAY)  # be polite to the platform APIs
@@ -585,6 +592,7 @@ def scan_sidecar(
                 "reposts": engagement["reposts"],
                 "comments": engagement["comments"],
                 "score": score,
+                "scanned_at": engagement["scanned_at"],
             }
         )
 
@@ -639,17 +647,19 @@ def cmd_scan(
             print(f"{summary['score']:>6}  {title}"
                   f"  (normalized {summary['normalized_score']:g})")
             for row in summary["platforms"]:
+                last_checked = f"last checked: {row.get('scanned_at') or 'unknown'}"
                 if "error" in row:
-                    print(f"         ! {row['platform']}: {row['error']}")
+                    print(f"         ! {row['platform']}: {row['error']} ({last_checked})")
                     failures += 1
                 elif "skipped" in row:
-                    print(f"         - {row['platform']}: skipped ({row['skipped']})")
+                    detail = f"; {last_checked}" if row["skipped"] == "older post" else ""
+                    print(f"         - {row['platform']}: skipped ({row['skipped']}){detail}")
                 else:
                     marker = " (cached)" if row.get("cached") else ""
                     print(
                         f"         {row['platform']}: "
                         f"likes={row['likes']} reposts={row['reposts']} "
-                        f"comments={row['comments']} (score {row['score']}){marker}"
+                        f"comments={row['comments']} (score {row['score']}){marker}; {last_checked}"
                     )
         elif summary["errors"]:
             failures += len(summary["errors"])
