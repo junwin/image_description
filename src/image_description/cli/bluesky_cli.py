@@ -35,8 +35,9 @@ CRED_PATH = "/home/junwin/credential/bluesky.json"
 # Bluesky post text limit in graphemes
 BSKY_TEXT_LIMIT = 300
 
-# Bluesky image blob limit in bytes (2 MB). Larger images are re-encoded smaller.
-BSKY_IMAGE_MAX_BYTES = 2 * 1024 * 1024
+# Bluesky image blob limit in bytes. The server rejects blobs over 2,000,000
+# bytes, so leave a small safety margin below that.
+BSKY_IMAGE_MAX_BYTES = 1_950_000
 
 
 # ---------------------------------------------------------------------------
