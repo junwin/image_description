@@ -32,7 +32,9 @@ Subcommands:
 
 Options:
     --platforms p1,p2   Only query these platforms (default: all)
-    --refresh           Refetch even if cached data is less than a day old
+    --refresh           Bypass caching and older-post sampling
+    --older-than-weeks N  Sample posts older than N weeks (default 3)
+    --older-post-probability P  Chance of checking an older post (default 0.2)
     --file-delay N      Seconds to pause between sidecars after live API
                         calls (default 10; 0 disables)
     --dry-run           Fetch but do not write anything back
@@ -57,7 +59,11 @@ Caching (be nice to the platforms):
     Each publish_history entry's engagement object stores a scanned_at
     timestamp. If that scan is less than SCAN_CACHE_DAYS old (default 1
     day), the cached counts are reused and the platform is NOT contacted
-    again. Use --refresh to force a refetch.
+    again. Older posts with stored stats are then sampled independently per
+    platform post: after 3 weeks, each eligible run has a 0.2 chance of
+    refetching. Skips preserve counts and scanned_at. Missing stats or
+    unknown publication dates are fetched normally. Use --refresh to bypass
+    both caching and sampling.
 
 Normalization:
     Posts published to fewer platforms collect less raw engagement, so
@@ -75,6 +81,7 @@ import argparse
 import json
 import math
 import os
+import random
 import sys
 import time
 from datetime import datetime, timedelta, timezone
@@ -93,6 +100,8 @@ FILE_DELAY = 10         # seconds to pause between sidecar files (live fetches)
 MAX_RETRIES = 3         # retries for rate-limit (429) responses
 RETRY_BASE_DELAY = 5    # seconds; doubles each retry (5, 10, 20)
 SCAN_CACHE_DAYS = 1     # reuse cached engagement younger than this
+OLDER_THAN_WEEKS = 3
+OLDER_POST_PROBABILITY = 0.2
 
 # Age boost: multiply the score by a factor that starts at 3 for a new
 # post and decays exponentially toward 1 (about 1.01 after 50 days).
@@ -149,6 +158,30 @@ def engagement_is_fresh(engagement: Any) -> bool:
     if scanned.tzinfo is None:
         scanned = scanned.replace(tzinfo=timezone.utc)
     return _now() - scanned < timedelta(days=SCAN_CACHE_DAYS)
+
+
+def skip_older_post(
+    entry: Dict[str, Any], older_than_weeks: float, probability: float
+) -> bool:
+    """Sample only dated posts with previously collected engagement."""
+    cached = entry.get("engagement")
+    if not isinstance(cached, dict) or "score" not in cached:
+        return False
+    raw = entry.get("date")
+    scanned_at = cached.get("scanned_at")
+    if not isinstance(raw, str) or not isinstance(scanned_at, str):
+        return False
+    try:
+        published = datetime.fromisoformat(raw.strip().replace("Z", "+00:00"))
+        # Invalid cache timestamps should be repaired by a normal fetch.
+        datetime.fromisoformat(scanned_at.strip().replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    if published.tzinfo is None:
+        published = published.replace(tzinfo=timezone.utc)
+    if _now() - published <= timedelta(weeks=older_than_weeks):
+        return False
+    return random.random() >= probability
 
 
 def age_factor(age_days: float) -> float:
@@ -477,11 +510,15 @@ def scan_sidecar(
     platforms: Optional[List[str]] = None,
     dry_run: bool = False,
     refresh: bool = False,
+    older_than_weeks: float = OLDER_THAN_WEEKS,
+    older_post_probability: float = OLDER_POST_PROBABILITY,
 ) -> Dict[str, Any]:
     """Scan one sidecar: fetch engagement for each platform in publish_history.
 
     Cached engagement scanned less than SCAN_CACHE_DAYS ago is reused and
-    the platform is not contacted again, unless refresh is True.
+    the platform is not contacted again. Older posts with stored stats are
+    sampled independently using each entry's publication date. Refresh
+    bypasses both caching and sampling.
 
     Returns a summary dict: {"path", "title", "score", "platforms",
     "errors", "live_fetches"}.
@@ -517,8 +554,18 @@ def scan_sidecar(
                     "comments": cached.get("comments", 0),
                     "score": score,
                     "cached": True,
+                    "scanned_at": cached.get("scanned_at"),
                 }
             )
+            continue
+
+        if not refresh and skip_older_post(
+            entry, older_than_weeks, older_post_probability
+        ):
+            platform_rows.append({
+                "platform": platform, "skipped": "older post",
+                "scanned_at": cached.get("scanned_at"),
+            })
             continue
 
         try:
@@ -527,7 +574,10 @@ def scan_sidecar(
             # A missing/deleted post (404) or persistent API error is
             # recorded against this platform; the scan continues.
             errors.append(f"{platform}/{post_id}: {e}")
-            platform_rows.append({"platform": platform, "error": str(e)})
+            platform_rows.append({
+                "platform": platform, "error": str(e),
+                "scanned_at": cached.get("scanned_at") if isinstance(cached, dict) else None,
+            })
             continue
 
         time.sleep(REQUEST_DELAY)  # be polite to the platform APIs
@@ -542,6 +592,7 @@ def scan_sidecar(
                 "reposts": engagement["reposts"],
                 "comments": engagement["comments"],
                 "score": score,
+                "scanned_at": engagement["scanned_at"],
             }
         )
 
@@ -572,6 +623,8 @@ def cmd_scan(
     as_json: bool,
     refresh: bool,
     file_delay: float,
+    older_than_weeks: float = OLDER_THAN_WEEKS,
+    older_post_probability: float = OLDER_POST_PROBABILITY,
 ) -> None:
     paths = iter_sidecar_paths(folder)
     if not paths:
@@ -584,7 +637,9 @@ def cmd_scan(
     failures = 0
     for index, path in enumerate(paths):
         summary = scan_sidecar(
-            path, platforms=platforms, dry_run=dry_run, refresh=refresh
+            path, platforms=platforms, dry_run=dry_run, refresh=refresh,
+            older_than_weeks=older_than_weeks,
+            older_post_probability=older_post_probability,
         )
         results.append(summary)
         if not as_json:
@@ -592,17 +647,19 @@ def cmd_scan(
             print(f"{summary['score']:>6}  {title}"
                   f"  (normalized {summary['normalized_score']:g})")
             for row in summary["platforms"]:
+                last_checked = f"last checked: {row.get('scanned_at') or 'unknown'}"
                 if "error" in row:
-                    print(f"         ! {row['platform']}: {row['error']}")
+                    print(f"         ! {row['platform']}: {row['error']} ({last_checked})")
                     failures += 1
                 elif "skipped" in row:
-                    print(f"         - {row['platform']}: skipped ({row['skipped']})")
+                    detail = f"; {last_checked}" if row["skipped"] == "older post" else ""
+                    print(f"         - {row['platform']}: skipped ({row['skipped']}){detail}")
                 else:
                     marker = " (cached)" if row.get("cached") else ""
                     print(
                         f"         {row['platform']}: "
                         f"likes={row['likes']} reposts={row['reposts']} "
-                        f"comments={row['comments']} (score {row['score']}){marker}"
+                        f"comments={row['comments']} (score {row['score']}){marker}; {last_checked}"
                     )
         elif summary["errors"]:
             failures += len(summary["errors"])
@@ -730,7 +787,15 @@ def main(argv: Optional[List[str]] = None) -> None:
     )
     p_scan.add_argument(
         "--refresh", action="store_true",
-        help="Refetch even if cached data is less than a day old",
+        help="Bypass caching and older-post sampling",
+    )
+    p_scan.add_argument(
+        "--older-than-weeks", type=float, default=OLDER_THAN_WEEKS,
+        help="Sample posts older than this many weeks (default 3)",
+    )
+    p_scan.add_argument(
+        "--older-post-probability", type=float, default=OLDER_POST_PROBABILITY,
+        help="Chance of checking an older post, from 0 to 1 (default 0.2)",
     )
     p_scan.add_argument(
         "--file-delay", type=float, default=FILE_DELAY,
@@ -758,6 +823,10 @@ def main(argv: Optional[List[str]] = None) -> None:
     args = parser.parse_args(argv)
 
     if args.command == "scan":
+        if not math.isfinite(args.older_than_weeks) or args.older_than_weeks < 0:
+            parser.error("--older-than-weeks must be a finite non-negative number")
+        if not 0 <= args.older_post_probability <= 1:
+            parser.error("--older-post-probability must be between 0 and 1")
         cmd_scan(
             folder=args.folder,
             platforms=_parse_platforms(args.platforms),
@@ -765,6 +834,8 @@ def main(argv: Optional[List[str]] = None) -> None:
             as_json=args.json,
             refresh=args.refresh,
             file_delay=args.file_delay,
+            older_than_weeks=args.older_than_weeks,
+            older_post_probability=args.older_post_probability,
         )
     elif args.command == "score":
         cmd_score(folder=args.folder, as_json=args.json)
