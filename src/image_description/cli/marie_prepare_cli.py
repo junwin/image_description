@@ -76,7 +76,7 @@ def main(argv=None):
     output = args.output.resolve()
     if not folder.is_dir():
         parser.error("input must be an existing directory")
-    if output == folder or folder in output.parents and output.name == "":
+    if output == folder or output in folder.parents:
         parser.error("output must be separate from input")
     width, height = SIZES[args.format]
     width = args.width or width
