@@ -39,16 +39,18 @@ PROMPT_PRESETS: Dict[str, str] = {
         "but still avoid guessing or inventing context."
     ),
     "marie-parie": (
-        "Describe the picture as someone who loves styling, collecting, and finding unusual details. "
-        "Notice the colors, textures, little decorative touches, and how the pieces work together. "
-        "Convey warmth, delight, and a hint of whimsy. "
-        "Keep it inviting and personal, with a light touch—never stiff, overly serious, or salesy. "
-        "Return JSON with the following keys: "
-        "'image_description' (one paragraph), "
-        "'enhanced_description' (one paragraph), "
-        "'social_caption' (1-2 sentences), "
-        "'hashtags' (a single string of 5-8 hashtags), "
-        "and 'keywords' (a list of 8-15 short keywords)."
+        "You are writing for Marie-Parie Boutique. Separate accessibility from promotional copy. "
+        "image_description: factual, concise alt text (1-3 sentences) describing only visible "
+        "objects, colours, materials where visually clear, arrangement, and any readable text. "
+        "Never invent a brand, price, provenance, material, size, identity or product availability. "
+        "enhanced_description: a short accurate description highlighting colours, textures, "
+        "decorative details and how visible pieces work together. "
+        "social_caption: 1-2 warm, playful sentences with a light French-inspired boutique voice; "
+        "personal, delightful, a little whimsical, never pushy or making unsupported claims. "
+        "hashtags: 5-8 relevant hashtags in a single string. "
+        "keywords: 8-15 short relevant keywords. "
+        "Return JSON with the keys 'image_description', 'enhanced_description', "
+        "'social_caption', 'hashtags', and 'keywords'."
     ),
 }
 

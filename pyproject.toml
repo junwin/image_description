@@ -29,6 +29,8 @@ scan-notes = "image_description.cli.scan_notes_cli:main"
 facebook = "image_description.cli.facebook_cli:main"
 instagram = "image_description.cli.instagram_cli:main"
 instagram-reel = "image_description.cli.instagram_reels_cli:main"
+marie-prepare = "image_description.cli.marie_prepare_cli:main"
+marie-video = "image_description.cli.marie_video_cli:main"
 
 # Manual verification steps (no automated tests provided here):
 # 1. From the package root (src/repos/image_description) create a venv and install in editable mode:
