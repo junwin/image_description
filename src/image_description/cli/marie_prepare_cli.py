@@ -7,7 +7,7 @@ from PIL import Image, ImageOps
 from image_description.image.describe import process_image
 
 
-SIZES = {"web": (600, 400), "reel": (1080, 1920)}
+SIZES = {"web": (600, 900), "reel": (1080, 1920)}
 EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
 
 
@@ -17,8 +17,13 @@ def images_in(directory):
                   key=lambda p: p.name.lower())
 
 
-def render_photo(source, destination, dimensions, fit="contain"):
-    """Auto-orient, then either preserve the entire photo or fill by cropping."""
+def render_photo(source, destination, dimensions, fit="natural"):
+    """Auto-orient and resize with optional cropping or padded canvas.
+
+    natural: image fits inside dimensions, without any added border.
+    contain: complete image on an exact-size white canvas.
+    cover: exact-size image cropped as needed.
+    """
     destination.parent.mkdir(parents=True, exist_ok=True)
     with Image.open(source) as original:
         oriented = ImageOps.exif_transpose(original)
@@ -29,9 +34,14 @@ def render_photo(source, destination, dimensions, fit="contain"):
             image.paste(rgba, mask=rgba.getchannel("A"))
         else:
             image = oriented.convert("RGB")
-        if fit == "cover":
+        if fit == "natural":
+            width, height = image.size
+            scale = min(dimensions[0] / width, dimensions[1] / height)
+            size = (max(1, round(width * scale)), max(1, round(height * scale)))
+            result = image.resize(size, Image.Resampling.LANCZOS)
+        elif fit == "cover":
             result = ImageOps.fit(image, dimensions, method=Image.Resampling.LANCZOS)
-        else:
+        elif fit == "contain":
             # Plain neutral background avoids cropping or visual distractions.
             bg = Image.new("RGB", dimensions, (255, 255, 255))
             foreground = ImageOps.contain(image, dimensions, method=Image.Resampling.LANCZOS)
@@ -39,6 +49,8 @@ def render_photo(source, destination, dimensions, fit="contain"):
             top = (dimensions[1] - foreground.height) // 2
             bg.paste(foreground, (left, top))
             result = bg
+        else:
+            raise ValueError("fit must be natural, contain, or cover")
         result.save(destination, "JPEG", quality=92, optimize=True)
 
 
@@ -68,8 +80,9 @@ def main(argv=None):
     parser.add_argument("input", type=Path, help="Folder of original photographs")
     parser.add_argument("--output", type=Path, required=True, help="Output folder (must differ from input)")
     parser.add_argument("--format", choices=SIZES, default="web")
-    parser.add_argument("--fit", choices=["contain", "cover"], default="contain")
-    parser.add_argument("--aspect-ratio", help="Target width:height, e.g. 3:2 or 600:400; keeps preset width unless --width is supplied")
+    parser.add_argument("--fit", choices=["auto", "natural", "contain", "cover"], default="auto",
+                        help="auto: natural for web, contain for reel")
+    parser.add_argument("--aspect-ratio", help="Target width:height, e.g. 2:3 or 600:900; keeps preset width unless --width is supplied")
     parser.add_argument("--width", type=int, help="Override preset width")
     parser.add_argument("--height", type=int, help="Override preset height")
     parser.add_argument("--no-describe", action="store_true", help="Prepare photos without AI calls")
@@ -106,6 +119,7 @@ def main(argv=None):
     if args.format == "reel" and (dimensions[0] % 2 or dimensions[1] % 2):
         parser.error("reel dimensions must be even for H.264 compatibility")
 
+    fit = ("natural" if args.format == "web" else "contain") if args.fit == "auto" else args.fit
     sources = images_in(folder)
     if not sources:
         parser.error("no JPG, PNG or WebP images found")
@@ -118,7 +132,7 @@ def main(argv=None):
         if image.exists() and not args.overwrite:
             print(f"Using existing {image.name}")
         else:
-            render_photo(source, image, dimensions, args.fit)
+            render_photo(source, image, dimensions, fit)
             print(f"Prepared {image.name}")
         if not args.no_describe:
             process_image(str(image), preset="marie-parie", overwrite=args.overwrite,
