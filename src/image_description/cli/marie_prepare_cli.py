@@ -7,7 +7,7 @@ from PIL import Image, ImageOps
 
 from image_description.image.describe import process_image
 
-SIZES = {"web": (600, 413), "reel": (1080, 1920)}
+SIZES = {"web": (600, 900), "reel": (1080, 1920)}
 EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
 
 
