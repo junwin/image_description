@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 from PIL import Image, ImageOps
+from image_description.image.describe import process_image
 
 
 SIZES = {"web": (600, 900), "reel": (1080, 1920)}
@@ -113,7 +114,6 @@ def main(argv=None):
             render_photo(source, image, dimensions, args.fit)
             print(f"Prepared {image.name}")
         if not args.no_describe:
-            from image_description.image.describe import process_image
             process_image(str(image), preset="marie-parie", overwrite=args.overwrite,
                           model=args.model, provider=args.provider,
                           credential_path=args.credential_path)
