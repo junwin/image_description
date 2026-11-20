@@ -17,7 +17,7 @@ pytest -q tests/test_marie_media.py tests/test_marie_publish.py
 ```
 
 The smoke test makes three synthetic pictures and a temporary local Git
-repository. It checks 600 × 900 JPEG conversion, a no-write dry run, insertion
+repository. It checks 600 × 400 JPEG conversion, a no-write dry run, insertion
 at the top of `gallery.txt`, a local commit, and idempotent replay. It does
 **not** contact the AI provider, GitHub or Cloudflare.
 
@@ -32,9 +32,9 @@ marie-resize incoming --output ready/web --format web --fit contain
 marie-resize incoming --output ready/reel --format reel --fit contain
 ```
 
-Default web is **600 × 900 (2:3 portrait)**, Reel is **1080 × 1920
+Default web is **600 × 400 (3:2 landscape)**, Reel is **1080 × 1920
 (9:16 portrait)**; both output JPEGs. `--aspect-ratio 4:5`,
-`--width 800 --aspect-ratio 2:3`, or `--width 600 --height 900`
+`--width 800 --aspect-ratio 3:2`, or `--width 600 --height 400`
 can override the target. `--fit cover` crops, while `--fit contain`
 preserves the image against a white background.
 
