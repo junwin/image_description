@@ -54,3 +54,21 @@ def test_custom_aspect_ratio_and_crop_style(tmp_path):
                             "--width", "900", "--fit", "cover", "--no-describe"])
     with Image.open(output / "001-sample.jpg") as image:
         assert image.size == (900, 600)
+
+
+def test_transparent_png_background_is_white(tmp_path):
+    incoming = tmp_path / "incoming"
+    incoming.mkdir()
+    Image.new("RGBA", (60, 90), (255, 0, 0, 0)).save(incoming / "transparent.png")
+    output = tmp_path / "ready"
+    marie_prepare_cli.main([str(incoming), "--output", str(output),
+                            "--format", "web", "--no-describe"])
+    with Image.open(output / "001-transparent.jpg") as image:
+        assert image.size == (600, 900)
+        assert all(channel > 245 for channel in image.getpixel((300, 450)))
+
+
+def test_publish_dry_run_rejects_commit(tmp_path):
+    import pytest
+    with pytest.raises(ValueError, match="dry-run"):
+        marie_publish_cli.publish(tmp_path, tmp_path, dry_run=True, commit=True)
