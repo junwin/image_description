@@ -30,6 +30,8 @@ facebook = "image_description.cli.facebook_cli:main"
 instagram = "image_description.cli.instagram_cli:main"
 instagram-reel = "image_description.cli.instagram_reels_cli:main"
 marie-prepare = "image_description.cli.marie_prepare_cli:main"
+marie-resize = "image_description.cli.marie_resize_cli:main"
+marie-describe = "image_description.cli.marie_describe_cli:main"
 marie-video = "image_description.cli.marie_video_cli:main"
 marie-publish = "image_description.cli.marie_publish_cli:main"
 
