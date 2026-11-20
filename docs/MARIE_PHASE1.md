@@ -17,7 +17,7 @@ pytest -q tests/test_marie_media.py tests/test_marie_publish.py
 ```
 
 The smoke test makes three synthetic pictures and a temporary local Git
-repository. It checks 600 × 400 JPEG conversion, a no-write dry run, insertion
+repository. It checks natural (unpadded) JPEG conversion, a no-write dry run, insertion
 at the top of `gallery.txt`, a local commit, and idempotent replay. It does
 **not** contact the AI provider, GitHub or Cloudflare.
 
@@ -28,15 +28,19 @@ portrait and square; JPG and PNG). Use a **fresh** output folder when changing
 ratio, size, or fit, otherwise supply `--overwrite`:
 
 ```bash
-marie-resize incoming --output ready/web --format web --fit contain
+marie-resize incoming --output ready/web --format web
 marie-resize incoming --output ready/reel --format reel --fit contain
 ```
 
-Default web is **600 × 400 (3:2 landscape)**, Reel is **1080 × 1920
-(9:16 portrait)**; both output JPEGs. `--aspect-ratio 4:5`,
-`--width 800 --aspect-ratio 3:2`, or `--width 600 --height 400`
-can override the target. `--fit cover` crops, while `--fit contain`
-preserves the image against a white background.
+Default web has **600 × 900 maximum bounds (2:3 portrait)** with
+`--fit natural`: image proportions are preserved, and the website supplies
+any side whitespace using its own CSS. Thus landscape images may be 600×400,
+while 2:3 portrait images will be 600×900. **No white margins are added.**
+The Reel preset is **1080 × 1920 (9:16 portrait)** with fixed-size
+`--fit contain` by default. Both modes export JPEGs.
+Use `--fit cover` to crop, or `--fit contain` to intentionally pad to a fixed
+canvas. Dimensions can be overridden using `--aspect-ratio 4:5`,
+`--width 800 --aspect-ratio 2:3`, or `--width 600 --height 900`.
 
 Review exported images first. Then:
 
