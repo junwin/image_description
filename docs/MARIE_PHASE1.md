@@ -11,8 +11,7 @@ cd ~/src/repos/image_description
 git switch feature/marie-parie-media-workflow
 python3 -m venv .venv
 source .venv/bin/activate
-pip install -e ../galet            # sibling Galet repo, if not installed
-pip install -e . pillow pytest
+pip install -e ../galet -e ".[dev]"  # one pip invocation for both editable projects
 python scripts/marie_phase1_smoke.py
 pytest -q tests/test_marie_media.py tests/test_marie_publish.py
 ```
