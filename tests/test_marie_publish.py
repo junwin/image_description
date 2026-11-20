@@ -15,8 +15,8 @@ def test_web_converts_png_and_fits_to_target_ratio(tmp_path):
     photo = output / "001-01-jacket.jpg"
     with Image.open(photo) as image:
         assert image.format == "JPEG"
-        assert image.size == (1080, 1920)
-        # Landscape original is contained inside the portrait frame.
+        assert image.size == (600, 413)
+        # Original 2:1 landscape image is contained in the 600:413 frame.
         assert image.getpixel((0, 0))[0] > 245
     assert (incoming / "01-jacket.png").exists()
 
@@ -42,3 +42,15 @@ def test_publish_prepends_and_is_idempotent(tmp_path):
     assert (gallery / "gallery.txt").read_text() == expected
     marie_publish_cli.publish(incoming, repo, commit=True)
     assert (gallery / "gallery.txt").read_text() == expected
+
+
+def test_custom_aspect_ratio_and_crop_style(tmp_path):
+    incoming = tmp_path / "incoming"
+    incoming.mkdir()
+    Image.new("RGB", (900, 500), "blue").save(incoming / "sample.jpg")
+    output = tmp_path / "output"
+    marie_prepare_cli.main([str(incoming), "--output", str(output),
+                            "--format", "web", "--aspect-ratio", "3:2",
+                            "--width", "900", "--fit", "cover", "--no-describe"])
+    with Image.open(output / "001-sample.jpg") as image:
+        assert image.size == (900, 600)
