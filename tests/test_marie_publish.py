@@ -95,3 +95,38 @@ def test_reel_defaults_to_fixed_portrait_canvas(tmp_path):
                             "--format", "reel", "--no-describe"])
     with Image.open(output / "001-wide.jpg") as image:
         assert image.size == (1080, 1920)
+
+def test_marie_description_suggests_name_but_does_not_rename(tmp_path, monkeypatch):
+    import json
+    from image_description.cli import marie_describe_cli
+
+    image = tmp_path / "001-8d67abc.jpg"
+    Image.new("RGB", (600, 900), "pink").save(image)
+
+    def fake_describe(path, **kwargs):
+        assert kwargs["preset"] == "marie-parie"
+        assert kwargs["suggest_filename"] is True
+        image_path = __import__("pathlib").Path(path)
+        image_path.with_suffix(".json").write_text(json.dumps({
+            "image_description": "A pink floral scarf.",
+            "enhanced_description": "Pink floral scarf on a table.",
+            "social_caption": "A little colour!",
+            "keywords": ["floral", "scarf"],
+            "suggested_filename": "Pink Floral Scarf",
+            "image_filename": image_path.name,
+            "image_relative_path": image_path.name,
+        }))
+
+    monkeypatch.setattr(marie_describe_cli, "process_image", fake_describe)
+    marie_describe_cli.main([str(tmp_path)])
+    assert image.exists()
+    assert not (tmp_path / "001-pink-floral-scarf.jpg").exists()
+    metadata = json.loads(image.with_suffix(".json").read_text())
+    assert metadata["suggested_filename"] == "001-pink-floral-scarf.jpg"
+    assert metadata["image_filename"] == image.name
+    assert 'suggested_filename: "001-pink-floral-scarf.jpg"' in image.with_suffix(".yaml").read_text()
+
+
+def test_suggested_filename_does_not_duplicate_prefix():
+    from image_description.cli.marie_describe_cli import proposed_filename
+    assert proposed_filename("001-abc.jpg", "001-pink-floral-scarf.jpg") == "001-pink-floral-scarf.jpg"
