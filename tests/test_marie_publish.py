@@ -15,8 +15,8 @@ def test_web_converts_png_and_fits_to_target_ratio(tmp_path):
     photo = output / "001-01-jacket.jpg"
     with Image.open(photo) as image:
         assert image.format == "JPEG"
-        assert image.size == (600, 900)
-        # Original 2:1 landscape image is contained in the 600:900 portrait frame.
+        assert image.size == (600, 400)
+        # Original 2:1 landscape image is contained in the 600:400 landscape frame.
         assert image.getpixel((0, 0))[0] > 245
     assert (incoming / "01-jacket.png").exists()
 
@@ -64,8 +64,8 @@ def test_transparent_png_background_is_white(tmp_path):
     marie_prepare_cli.main([str(incoming), "--output", str(output),
                             "--format", "web", "--no-describe"])
     with Image.open(output / "001-transparent.jpg") as image:
-        assert image.size == (600, 900)
-        assert all(channel > 245 for channel in image.getpixel((300, 450)))
+        assert image.size == (600, 400)
+        assert all(channel > 245 for channel in image.getpixel((300, 200)))
 
 
 def test_publish_dry_run_rejects_commit(tmp_path):
