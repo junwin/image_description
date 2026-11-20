@@ -21,7 +21,14 @@ def render_photo(source, destination, dimensions, fit="contain"):
     """Auto-orient, then either preserve the entire photo or fill by cropping."""
     destination.parent.mkdir(parents=True, exist_ok=True)
     with Image.open(source) as original:
-        image = ImageOps.exif_transpose(original).convert("RGB")
+        oriented = ImageOps.exif_transpose(original)
+        # JPEG cannot retain transparency: flatten RGBA/P images against white.
+        if "A" in oriented.getbands() or "transparency" in oriented.info:
+            rgba = oriented.convert("RGBA")
+            image = Image.new("RGB", rgba.size, (255, 255, 255))
+            image.paste(rgba, mask=rgba.getchannel("A"))
+        else:
+            image = oriented.convert("RGB")
         if fit == "cover":
             result = ImageOps.fit(image, dimensions, method=Image.Resampling.LANCZOS)
         else:
