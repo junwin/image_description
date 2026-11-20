@@ -3,11 +3,11 @@ import argparse
 import json
 from pathlib import Path
 
-from PIL import Image, ImageFilter, ImageOps
+from PIL import Image, ImageOps
 
 from image_description.image.describe import process_image
 
-SIZES = {"web": (1080, 1920), "reel": (1080, 1920)}
+SIZES = {"web": (600, 413), "reel": (1080, 1920)}
 EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
 
 
@@ -17,16 +17,12 @@ def images_in(directory):
                   key=lambda p: p.name.lower())
 
 
-def render_photo(source, destination, dimensions=None, fit="contain", max_side=1200):
+def render_photo(source, destination, dimensions, fit="contain"):
     """Auto-orient, then either preserve the entire photo or fill by cropping."""
     destination.parent.mkdir(parents=True, exist_ok=True)
     with Image.open(source) as original:
         image = ImageOps.exif_transpose(original).convert("RGB")
-        if dimensions is None:
-            # Web default: retain native aspect ratio, downscale if needed.
-            result = image.copy()
-            result.thumbnail((max_side, max_side), Image.Resampling.LANCZOS)
-        elif fit == "cover":
+        if fit == "cover":
             result = ImageOps.fit(image, dimensions, method=Image.Resampling.LANCZOS)
         else:
             # Plain neutral background avoids cropping or visual distractions.
@@ -66,7 +62,7 @@ def main(argv=None):
     parser.add_argument("--output", type=Path, required=True, help="Output folder (must differ from input)")
     parser.add_argument("--format", choices=SIZES, default="web")
     parser.add_argument("--fit", choices=["contain", "cover"], default="contain")
-    parser.add_argument("--max-side", type=int, default=1200, help="Maximum dimension for unframed exports")
+    parser.add_argument("--aspect-ratio", help="Target width:height, e.g. 3:2 or 600:413; keeps preset width unless --width is supplied")
     parser.add_argument("--width", type=int, help="Override preset width")
     parser.add_argument("--height", type=int, help="Override preset height")
     parser.add_argument("--no-describe", action="store_true", help="Prepare photos without AI calls")
@@ -83,11 +79,22 @@ def main(argv=None):
     if output == folder or output in folder.parents:
         parser.error("output must be separate from input")
     dimensions = SIZES[args.format]
-    if args.width or args.height:
-        if not (args.width and args.height):
-            parser.error("--width and --height must be supplied together")
+    if args.aspect_ratio:
+        if args.height is not None:
+            parser.error("--height cannot be combined with --aspect-ratio")
+        try:
+            ratio_w, ratio_h = (int(part.strip()) for part in args.aspect_ratio.split(":"))
+            if ratio_w <= 0 or ratio_h <= 0:
+                raise ValueError()
+        except (ValueError, TypeError):
+            parser.error("--aspect-ratio must be positive integers WIDTH:HEIGHT, e.g. 3:2")
+        width = args.width if args.width is not None else dimensions[0]
+        dimensions = (width, round(width * ratio_h / ratio_w))
+    elif args.width is not None or args.height is not None:
+        if args.width is None or args.height is None:
+            parser.error("--width and --height must be supplied together unless using --aspect-ratio")
         dimensions = (args.width, args.height)
-    if args.max_side < 1 or (dimensions and min(dimensions) < 1):
+    if min(dimensions) < 1:
         parser.error("dimensions must be positive")
     if args.format == "reel" and (dimensions[0] % 2 or dimensions[1] % 2):
         parser.error("reel dimensions must be even for H.264 compatibility")
@@ -104,7 +111,7 @@ def main(argv=None):
         if image.exists() and not args.overwrite:
             print(f"Using existing {image.name}")
         else:
-            render_photo(source, image, dimensions, args.fit, args.max_side)
+            render_photo(source, image, dimensions, args.fit)
             print(f"Prepared {image.name}")
         if not args.no_describe:
             process_image(str(image), preset="marie-parie", overwrite=args.overwrite,
