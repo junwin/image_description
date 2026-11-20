@@ -58,7 +58,7 @@ for current options. Scripts under `scripts/` are mostly maintenance utilities.
 Install the package and FFmpeg (for videos):
 
 ```bash
-pip install -e .
+pip install -e ../galet -e ".[dev]"
 sudo apt install ffmpeg  # Debian/Ubuntu/Linux Mint
 ```
 
