@@ -72,7 +72,7 @@ def generate_openai_description_and_keywords(
     provider: Optional[str] = None,
     credential_path: Optional[str] = None,
     include_filename: bool = False,
-) -> Tuple[str, str, str, List[str]]:
+) -> tuple:
     """Call a vision model via galet and return (img_desc, enhanced_desc, social_caption, keywords).
 
     Args:
@@ -96,7 +96,7 @@ def generate_openai_description_and_keywords(
     prompt = build_prompt(preset, title, description, existing_keywords)
     if include_filename:
         prompt += (
-            "\\nAlso provide 'suggested_filename': a brief, accurate, descriptive "
+            "\nAlso provide 'suggested_filename': a brief, accurate, descriptive "
             "lowercase hyphenated basename without an extension (3-7 words). "
             "Use only clearly visible objects or readable labels; avoid brands, "
             "materials or other claims not verifiable in the image. "
