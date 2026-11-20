@@ -75,7 +75,7 @@ marie-prepare incoming --output ready/web --format web
 marie-prepare incoming --output ready/draft --format reel --no-describe
 ```
 
-Preset dimensions are Reel **1080x1920 (9:16)** and web **600x413 (matching existing New Arrivals images)**.
+Preset dimensions are Reel **1080x1920 (9:16)** and web **600x900 (portrait 2:3 web output)**.
 Use `--aspect-ratio 3:2` to change the web ratio while keeping the preset width, or `--width 900 --aspect-ratio 3:2` to change width too. Use `--width` and `--height` together for exact dimensions. `--fit contain` (default) preserves the full photograph within a white frame, while `--fit cover` crops to fill. All web outputs are JPEG, including PNG inputs. Default
 `--fit contain` preserves each complete photograph against a blurred
 background; `--fit cover` fills the frame by cropping (verify that products
@@ -129,13 +129,12 @@ human review. Reel creation remains a separate `marie-video` step.
 
 ### Configurable output ratio and fit
 
-The existing website New Arrivals images are approximately **600 × 413**, so
-this is the default web export size. Source images with mixed ratios are
+The default web output is **600 × 900 (2:3 portrait)**, chosen for the height-constrained New Arrivals gallery. Existing images may have different dimensions. Source images with mixed ratios are
 normalized to the selected target frame:
 
 ```bash
-marie-prepare incoming --output ready/web --format web                      # 600x413 contain
-marie-prepare incoming --output ready/web-crop --format web --fit cover     # 600x413 crop
+marie-prepare incoming --output ready/web --format web                      # 600x900 contain
+marie-prepare incoming --output ready/web-crop --format web --fit cover     # 600x900 crop
 marie-prepare incoming --output ready/other --format web --aspect-ratio 3:2 --width 900
 marie-prepare incoming --output ready/reel --format reel --fit contain      # 1080x1920
 ```
