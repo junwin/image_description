@@ -7,7 +7,7 @@ from PIL import Image, ImageOps
 from image_description.image.describe import process_image
 
 
-SIZES = {"web": (600, 900), "reel": (1080, 1920)}
+SIZES = {"web": (600, 400), "reel": (1080, 1920)}
 EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
 
 
@@ -69,7 +69,7 @@ def main(argv=None):
     parser.add_argument("--output", type=Path, required=True, help="Output folder (must differ from input)")
     parser.add_argument("--format", choices=SIZES, default="web")
     parser.add_argument("--fit", choices=["contain", "cover"], default="contain")
-    parser.add_argument("--aspect-ratio", help="Target width:height, e.g. 3:2 or 600:413; keeps preset width unless --width is supplied")
+    parser.add_argument("--aspect-ratio", help="Target width:height, e.g. 3:2 or 600:400; keeps preset width unless --width is supplied")
     parser.add_argument("--width", type=int, help="Override preset width")
     parser.add_argument("--height", type=int, help="Override preset height")
     parser.add_argument("--no-describe", action="store_true", help="Prepare photos without AI calls")
