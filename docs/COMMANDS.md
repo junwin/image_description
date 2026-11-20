@@ -114,9 +114,10 @@ repeated entries. It refuses to overwrite different existing files.
 ```bash
 marie-prepare incoming --output ready/web --format web
 marie-publish ready/web --repo ../marie-parie-web --dry-run
-marie-publish ready/web --repo ../marie-parie-web
-# Inspect the updated gallery and photos before publishing the staging website:
-marie-publish ready/web --repo ../marie-parie-web --commit --push
+# Copy and commit to staging after reviewing the dry-run:
+marie-publish ready/web --repo ../marie-parie-web --commit
+# After reviewing the local commit, publish the staging branch:
+git -C ../marie-parie-web push origin staging
 ```
 
 The command never modifies production (`main`), and never commits or pushes
