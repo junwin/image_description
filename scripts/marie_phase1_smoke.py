@@ -36,9 +36,11 @@ def main():
         marie_resize_cli.main([str(incoming), "--output", str(ready), "--format", "web"])
         images = sorted(ready.glob("*.jpg"))
         assert len(images) == 3
-        for photo in images:
+        # Natural mode uses the 600x900 bounding box without inserting margins.
+        expected_sizes = [(600, 400), (600, 900), (600, 600)]
+        for photo, size in zip(images, expected_sizes):
             with Image.open(photo) as image:
-                assert image.size == (600, 900), photo
+                assert image.size == size, (photo, image.size, size)
         marie_publish_cli.publish(ready, repo, dry_run=True)
         assert gallery.read_text() == "existing-item.jpg\n"
         marie_publish_cli.publish(ready, repo, commit=True)
@@ -46,7 +48,7 @@ def main():
         assert gallery.read_text().splitlines() == expected
         marie_publish_cli.publish(ready, repo, commit=True)
         assert gallery.read_text().splitlines() == expected
-        print("PASS: 3 images, 600x900; gallery prepended once; originals untouched")
+        print("PASS: 3 natural-sized images (landscape, portrait, square); gallery prepended once; originals untouched")
         print("PASS: dry-run changed nothing; no remote push or AI calls")
 
 
