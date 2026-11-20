@@ -146,7 +146,7 @@ The design is:
 
 ### 1.1 Python and virtual environment
 
-You'll need Python 3.9+ installed.
+You'll need Python 3.11 or newer (Galet requires 3.11+).
 
 From the project directory:
 
@@ -154,14 +154,15 @@ From the project directory:
 cd ~/src/repos/image_description
 python3 -m venv .venv
 source .venv/bin/activate
-pip install -r requirements.txt
+pip install -e ../galet -e ".[dev]"
 ```
 
-The `requirements.txt` includes:
-
-- `openai` – for calling the OpenAI API
-- `Pillow` – for basic image handling
-- `requests` – for HTTP calls (used by some helpers)
+The `pyproject.toml` is the single source of runtime dependencies and CLI entry points.
+The single pip command installs both sibling repositories in editable mode and
+includes the `pytest` development extra. For a standard installation of
+`image_description` against an already available Galet package, use
+`pip install -e .`. Optional extras: `.[ngrok]` and `.[gemini]`.
+`requirements.txt` remains only as a compatibility shortcut to `-e .`.
 
 ### 1.2 OpenAI credentials
 
