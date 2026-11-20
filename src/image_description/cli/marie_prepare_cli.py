@@ -7,7 +7,7 @@ from PIL import Image, ImageFilter, ImageOps
 
 from image_description.image.describe import process_image
 
-SIZES = {"web": (1200, 1200), "reel": (1080, 1920)}
+SIZES = {"web": None, "reel": (1080, 1920)}
 EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
 
 
@@ -17,12 +17,16 @@ def images_in(directory):
                   key=lambda p: p.name.lower())
 
 
-def render_photo(source, destination, dimensions, fit="contain"):
+def render_photo(source, destination, dimensions=None, fit="contain", max_side=1200):
     """Auto-orient, then either preserve the entire photo or fill by cropping."""
     destination.parent.mkdir(parents=True, exist_ok=True)
     with Image.open(source) as original:
         image = ImageOps.exif_transpose(original).convert("RGB")
-        if fit == "cover":
+        if dimensions is None:
+            # Web default: retain native aspect ratio, downscale if needed.
+            result = image.copy()
+            result.thumbnail((max_side, max_side), Image.Resampling.LANCZOS)
+        elif fit == "cover":
             result = ImageOps.fit(image, dimensions, method=Image.Resampling.LANCZOS)
         else:
             # Blurred photographic background avoids stretching or cutting off products.
@@ -63,6 +67,7 @@ def main(argv=None):
     parser.add_argument("--output", type=Path, required=True, help="Output folder (must differ from input)")
     parser.add_argument("--format", choices=SIZES, default="web")
     parser.add_argument("--fit", choices=["contain", "cover"], default="contain")
+    parser.add_argument("--max-side", type=int, default=1200, help="Web maximum dimension; preserves aspect ratio")
     parser.add_argument("--width", type=int, help="Override preset width")
     parser.add_argument("--height", type=int, help="Override preset height")
     parser.add_argument("--no-describe", action="store_true", help="Prepare photos without AI calls")
@@ -78,12 +83,14 @@ def main(argv=None):
         parser.error("input must be an existing directory")
     if output == folder or output in folder.parents:
         parser.error("output must be separate from input")
-    width, height = SIZES[args.format]
-    width = args.width or width
-    height = args.height or height
-    if width < 1 or height < 1:
-        parser.error("width and height must be positive")
-    if args.format == "reel" and (width % 2 or height % 2):
+    dimensions = SIZES[args.format]
+    if args.width or args.height:
+        if not (args.width and args.height):
+            parser.error("--width and --height must be supplied together")
+        dimensions = (args.width, args.height)
+    if args.max_side < 1 or (dimensions and min(dimensions) < 1):
+        parser.error("dimensions must be positive")
+    if args.format == "reel" and (dimensions[0] % 2 or dimensions[1] % 2):
         parser.error("reel dimensions must be even for H.264 compatibility")
 
     sources = images_in(folder)
@@ -98,7 +105,7 @@ def main(argv=None):
         if image.exists() and not args.overwrite:
             print(f"Using existing {image.name}")
         else:
-            render_photo(source, image, (width, height), args.fit)
+            render_photo(source, image, dimensions, args.fit, args.max_side)
             print(f"Prepared {image.name}")
         if not args.no_describe:
             process_image(str(image), preset="marie-parie", overwrite=args.overwrite,
@@ -108,7 +115,9 @@ def main(argv=None):
         if sidecar.exists():
             metadata = json.loads(sidecar.read_text(encoding="utf-8"))
         if not yaml_path.exists() or args.overwrite:
-            write_yaml(yaml_path, source, image, f"{width}:{height}", metadata)
+            with Image.open(image) as exported:
+                actual_width, actual_height = exported.size
+            write_yaml(yaml_path, source, image, f"{actual_width}:{actual_height}", metadata)
     print(f"Completed {len(sources)} images in {output}")
 
 
