@@ -46,6 +46,8 @@ Review exported images first. Then:
 
 ```bash
 marie-describe ready/web
+# Inspect the YAML files for alt text, caption, and suggested_filename.
+# No image files are renamed automatically.
 marie-publish ready/web --repo ../marie-parie-web --dry-run
 ```
 
@@ -84,3 +86,19 @@ The video remains local until published separately.
   descriptive accuracy.
 - For additional staff or unattended publishing, introduce authenticated
   MCP tools and explicit authorization as Phase 2.
+
+## AI naming and annotations
+
+`marie-describe ready/web` invokes the Marie-Parie Galet vision preset once
+per image and writes JSON plus human-readable YAML next to each JPEG.
+Each description now also requests a `suggested_filename` such as
+`001-pink-floral-scarf.jpg`, keeping the sequence number. It never renames
+the original or prepared image. The name is **a review proposal**: check that
+it correctly identifies the product before considering renaming.
+
+The existing `marie-publish` command still uses the actual JPEG filename.
+Do **not** rename only the JPEG: its JSON `image_filename` and
+`image_relative_path`, YAML, and prospective gallery references would
+also need updating together. Applying reviewed names is a separate
+future operation. If a JSON sidecar already exists without a suggestion,
+run `marie-describe ready/web --overwrite` to request one.
