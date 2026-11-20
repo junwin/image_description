@@ -15,8 +15,8 @@ def test_web_converts_png_and_fits_to_target_ratio(tmp_path):
     photo = output / "001-01-jacket.jpg"
     with Image.open(photo) as image:
         assert image.format == "JPEG"
-        assert image.size == (600, 413)
-        # Original 2:1 landscape image is contained in the 600:413 frame.
+        assert image.size == (600, 900)
+        # Original 2:1 landscape image is contained in the 600:900 portrait frame.
         assert image.getpixel((0, 0))[0] > 245
     assert (incoming / "01-jacket.png").exists()
 
