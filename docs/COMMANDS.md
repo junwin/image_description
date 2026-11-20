@@ -75,8 +75,8 @@ marie-prepare incoming --output ready/web --format web
 marie-prepare incoming --output ready/draft --format reel --no-describe
 ```
 
-Preset dimensions are Reel **1080x1920 (9:16)** and web **original aspect ratio, maximum 1200px on the longest side**.
-Use `--width` and `--height` together to force other webpage sizes; the default web export preserves the full original frame without padding. All web outputs are JPEG, including PNG inputs. Default
+Preset dimensions are Reel **1080x1920 (9:16)** and web **1080x1920 (9:16 portrait)**.
+Use `--width` and `--height` together for a different target ratio. By default, the full original photo is contained within a white 9:16 frame without cropping; `--fit cover` crops to fill. All web outputs are JPEG, including PNG inputs. Default
 `--fit contain` preserves each complete photograph against a blurred
 background; `--fit cover` fills the frame by cropping (verify that products
 are not cut off). EXIF orientation is applied. Source images are never
