@@ -25,7 +25,7 @@ def test_publish_prepends_and_is_idempotent(tmp_path):
     repo = tmp_path / "site"
     gallery = repo / "assets" / "New Arrivals"
     gallery.mkdir(parents=True)
-    (gallery / "gallery.txt").write_text("old-one.jpg\\nold-two.png\\n")
+    (gallery / "gallery.txt").write_text("old-one.jpg\nold-two.png\n")
     subprocess.run(["git", "init", "-b", "staging", str(repo)], check=True, capture_output=True)
     subprocess.run(["git", "-C", str(repo), "config", "user.name", "Test"], check=True)
     subprocess.run(["git", "-C", str(repo), "config", "user.email", "test@example.com"], check=True)
@@ -36,9 +36,9 @@ def test_publish_prepends_and_is_idempotent(tmp_path):
     for name in ("001-new.jpg", "002-next.jpg"):
         Image.new("RGB", (20, 10)).save(incoming / name)
     marie_publish_cli.publish(incoming, repo, dry_run=True)
-    assert (gallery / "gallery.txt").read_text() == "old-one.jpg\\nold-two.png\\n"
+    assert (gallery / "gallery.txt").read_text() == "old-one.jpg\nold-two.png\n"
     marie_publish_cli.publish(incoming, repo, commit=True)
-    expected = "001-new.jpg\\n002-next.jpg\\nold-one.jpg\\nold-two.png\\n"
+    expected = "001-new.jpg\n002-next.jpg\nold-one.jpg\nold-two.png\n"
     assert (gallery / "gallery.txt").read_text() == expected
     marie_publish_cli.publish(incoming, repo, commit=True)
     assert (gallery / "gallery.txt").read_text() == expected
