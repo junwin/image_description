@@ -75,8 +75,8 @@ marie-prepare incoming --output ready/web --format web
 marie-prepare incoming --output ready/draft --format reel --no-describe
 ```
 
-Preset dimensions are Reel **1080x1920 (9:16)** and web **1080x1920 (9:16 portrait)**.
-Use `--width` and `--height` together for a different target ratio. By default, the full original photo is contained within a white 9:16 frame without cropping; `--fit cover` crops to fill. All web outputs are JPEG, including PNG inputs. Default
+Preset dimensions are Reel **1080x1920 (9:16)** and web **600x413 (matching existing New Arrivals images)**.
+Use `--aspect-ratio 3:2` to change the web ratio while keeping the preset width, or `--width 900 --aspect-ratio 3:2` to change width too. Use `--width` and `--height` together for exact dimensions. `--fit contain` (default) preserves the full photograph within a white frame, while `--fit cover` crops to fill. All web outputs are JPEG, including PNG inputs. Default
 `--fit contain` preserves each complete photograph against a blurred
 background; `--fit cover` fills the frame by cropping (verify that products
 are not cut off). EXIF orientation is applied. Source images are never
@@ -126,3 +126,18 @@ website repository's feature-branch policy for code changes; this utility is
 for routine staged content delivery only. The default gallery uses literal
 filenames, not descriptions. AI-generated filenames can be added later after
 human review. Reel creation remains a separate `marie-video` step.
+
+### Configurable output ratio and fit
+
+The existing website New Arrivals images are approximately **600 × 413**, so
+this is the default web export size. Source images with mixed ratios are
+normalized to the selected target frame:
+
+```bash
+marie-prepare incoming --output ready/web --format web                      # 600x413 contain
+marie-prepare incoming --output ready/web-crop --format web --fit cover     # 600x413 crop
+marie-prepare incoming --output ready/other --format web --aspect-ratio 3:2 --width 900
+marie-prepare incoming --output ready/reel --format reel --fit contain      # 1080x1920
+```
+
+Use a fresh output folder or `--overwrite` when changing dimensions or fit.
