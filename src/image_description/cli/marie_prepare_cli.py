@@ -63,6 +63,7 @@ def write_yaml(destination, source, image, ratio, metadata):
     lines = [
         "source: " + yaml_scalar(source.name),
         "image: " + yaml_scalar(image.name),
+        "suggested_filename: " + yaml_scalar(metadata.get("suggested_filename")),
         "aspect_ratio: " + yaml_scalar(ratio),
         "preset: marie-parie",
         "alt_text: " + yaml_scalar(metadata.get("image_description")),
