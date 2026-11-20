@@ -71,6 +71,7 @@ def generate_openai_description_and_keywords(
     model: str = "gpt-4o-mini",
     provider: Optional[str] = None,
     credential_path: Optional[str] = None,
+    include_filename: bool = False,
 ) -> Tuple[str, str, str, List[str]]:
     """Call a vision model via galet and return (img_desc, enhanced_desc, social_caption, keywords).
 
@@ -93,6 +94,14 @@ def generate_openai_description_and_keywords(
     from .galet_client import create_vision_response, parse_json_response
 
     prompt = build_prompt(preset, title, description, existing_keywords)
+    if include_filename:
+        prompt += (
+            "\\nAlso provide 'suggested_filename': a brief, accurate, descriptive "
+            "lowercase hyphenated basename without an extension (3-7 words). "
+            "Use only clearly visible objects or readable labels; avoid brands, "
+            "materials or other claims not verifiable in the image. "
+            "No paths, dates, numbering or arbitrary identifiers."
+        )
     image_b64 = _encode_image_to_base64(image_path, max_side=max_side)
 
     text = create_vision_response(
@@ -118,9 +127,12 @@ def generate_openai_description_and_keywords(
     if not isinstance(new_keywords, list):
         new_keywords = [str(new_keywords)]
 
-    return (
+    result = (
         img_desc,
         enhanced_desc,
         social_caption,
         [str(k).strip() for k in new_keywords if str(k).strip()],
     )
+    if include_filename:
+        return (*result, str(data.get("suggested_filename", "") or "").strip())
+    return result
