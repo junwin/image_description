@@ -64,20 +64,19 @@ sudo apt install ffmpeg  # Debian/Ubuntu/Linux Mint
 
 1. Put N original JPG/PNG/WebP photographs in `incoming/`. Inputs are processed
    in filename order; prefix names 01, 02 etc. to specify sequence.
-2. Prepare either portrait Reel assets or square web assets. Each creates a
+2. Prepare either portrait Reel assets or portrait web assets. Each creates a
    numbered JPG export, an existing-format JSON sidecar, and a simple YAML
    summary with alt text, description, caption and keywords.
 
 ```bash
-marie-prepare incoming --output ready/reel --format reel
-marie-prepare incoming --output ready/web --format web
-# Fast/offline image-only mode; use on a separate, fresh output directory:
-marie-prepare incoming --output ready/draft --format reel --no-describe
+marie-resize incoming --output ready/reel --format reel
+marie-resize incoming --output ready/web --format web
+marie-describe ready/web  # optional AI descriptions and YAML sidecars
 ```
 
 Preset dimensions are Reel **1080x1920 (9:16)** and web **600x900 (portrait 2:3 web output)**.
 Use `--aspect-ratio 3:2` to change the web ratio while keeping the preset width, or `--width 900 --aspect-ratio 3:2` to change width too. Use `--width` and `--height` together for exact dimensions. `--fit contain` (default) preserves the full photograph within a white frame, while `--fit cover` crops to fill. All web outputs are JPEG, including PNG inputs. Default
-`--fit contain` preserves each complete photograph against a blurred
+`--fit contain` preserves each complete photograph against a white
 background; `--fit cover` fills the frame by cropping (verify that products
 are not cut off). EXIF orientation is applied. Source images are never
 changed. Generated JSON and YAML sidecars live in the output folder; the
@@ -112,7 +111,7 @@ branch `staging`**. It adds their exact filenames at the *top* of
 repeated entries. It refuses to overwrite different existing files.
 
 ```bash
-marie-prepare incoming --output ready/web --format web
+marie-resize incoming --output ready/web --format web
 marie-publish ready/web --repo ../marie-parie-web --dry-run
 # Copy and commit to staging after reviewing the dry-run:
 marie-publish ready/web --repo ../marie-parie-web --commit
@@ -134,9 +133,19 @@ normalized to the selected target frame:
 
 ```bash
 marie-prepare incoming --output ready/web --format web                      # 600x900 contain
-marie-prepare incoming --output ready/web-crop --format web --fit cover     # 600x900 crop
-marie-prepare incoming --output ready/other --format web --aspect-ratio 3:2 --width 900
-marie-prepare incoming --output ready/reel --format reel --fit contain      # 1080x1920
+marie-resize incoming --output ready/web-crop --format web --fit cover     # 600x900 crop
+marie-resize incoming --output ready/other --format web --aspect-ratio 3:2 --width 900
+marie-resize incoming --output ready/reel --format reel --fit contain      # 1080x1920
 ```
 
 Use a fresh output folder or `--overwrite` when changing dimensions or fit.
+
+## Separation of responsibilities
+
+- `marie-resize` is image-only, requires no AI credentials and preserves the originals. Default web output: 600×900 JPEG, configurable with `--aspect-ratio`, `--width`, `--height`, and `--fit contain|cover`. It writes an initially empty YAML summary.
+- `marie-describe ready/web` adds AI-generated JSON metadata and refreshes YAML while retaining its recorded original filename. Use `--overwrite` to regenerate descriptions.
+- `marie-publish ready/web --repo ../marie-parie-web` updates the local staging gallery, separately from description and resizing.
+- `marie-video ready/reel --output ready/reel.mp4` produces an optional slideshow.
+- `marie-prepare` is retained as a compatibility command for the combined operation.
+
+No command above deploys to `main` automatically.
