@@ -75,8 +75,8 @@ marie-prepare incoming --output ready/web --format web
 marie-prepare incoming --output ready/draft --format reel --no-describe
 ```
 
-Preset dimensions are Reel **1080x1920 (9:16)** and web **1200x1200 (1:1)**.
-Use `--width` and `--height` for other webpage sizes. Default
+Preset dimensions are Reel **1080x1920 (9:16)** and web **original aspect ratio, maximum 1200px on the longest side**.
+Use `--width` and `--height` together to force other webpage sizes; the default web export preserves the full original frame without padding. All web outputs are JPEG, including PNG inputs. Default
 `--fit contain` preserves each complete photograph against a blurred
 background; `--fit cover` fills the frame by cropping (verify that products
 are not cut off). EXIF orientation is applied. Source images are never
@@ -102,3 +102,26 @@ accessible video URL or ngrok tunnel.
 Check each alt text and caption, especially names, materials, and availability.
 Neither command posts to social media. No image or video creation modifies the
 original incoming photographs.
+
+## Publish prepared web photos to the staging gallery
+
+The separate `marie-publish` command copies the numbered JPG exports into
+`assets/New Arrivals/` in a **clean local checkout of `marie-parie-web` on
+branch `staging`**. It adds their exact filenames at the *top* of
+`assets/New Arrivals/gallery.txt`, preserving existing order and avoiding
+repeated entries. It refuses to overwrite different existing files.
+
+```bash
+marie-prepare incoming --output ready/web --format web
+marie-publish ready/web --repo ../marie-parie-web --dry-run
+marie-publish ready/web --repo ../marie-parie-web
+# Inspect the updated gallery and photos before publishing the staging website:
+marie-publish ready/web --repo ../marie-parie-web --commit --push
+```
+
+The command never modifies production (`main`), and never commits or pushes
+unless explicitly requested. `--push` requires `--commit`. Follow the
+website repository's feature-branch policy for code changes; this utility is
+for routine staged content delivery only. The default gallery uses literal
+filenames, not descriptions. AI-generated filenames can be added later after
+human review. Reel creation remains a separate `marie-video` step.
