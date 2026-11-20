@@ -15,7 +15,8 @@ def proposed_filename(image_name, suggestion):
     """Review-only descriptive filename; keep the numeric sequence prefix."""
     normalized = unicodedata.normalize("NFKD", str(suggestion))
     ascii_name = normalized.encode("ascii", "ignore").decode("ascii")
-    slug = re.sub(r"[^a-z0-9]+", "-", ascii_name.lower().removesuffix(".jpg"))
+    clean = re.sub(r"^\\d{3}-", "", ascii_name.lower().removesuffix(".jpg"))
+    slug = re.sub(r"[^a-z0-9]+", "-", clean)
     slug = slug.strip("-")[:85].strip("-")
     if not slug:
         return ""
