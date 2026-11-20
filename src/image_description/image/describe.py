@@ -71,6 +71,7 @@ def process_image(
     provider: Optional[str] = None,
     credential_path: Optional[str] = None,
     image_root: Optional[str] = None,
+    suggest_filename: bool = False,
 ) -> None:
     """Process a single image and write a JSON sidecar.
 
@@ -134,7 +135,7 @@ def process_image(
     existing_title, existing_description, existing_keywords, existing_alt_text = show_image_iptc_meta(image_path)
     capture_datetime = get_exif_date(image_path)
 
-    img_desc, enhanced_desc, social_caption, new_keywords = generate_openai_description_and_keywords(
+    generated = generate_openai_description_and_keywords(
         image_path,
         existing_title,
         existing_description,
@@ -144,7 +145,10 @@ def process_image(
         model=model,
         provider=provider,
         credential_path=credential_path,
+        **({"include_filename": True} if suggest_filename else {}),
     )
+    img_desc, enhanced_desc, social_caption, new_keywords = generated[:4]
+    suggested_name = generated[4] if suggest_filename and len(generated) > 4 else ""
 
     # Use existing IPTC alt text if present, otherwise the AI-generated one.
     image_description = existing_alt_text if existing_alt_text else img_desc
@@ -166,6 +170,8 @@ def process_image(
         image_relative_path=image_relative_path,
     )
 
+    if suggest_filename:
+        sidecar.extra["suggested_filename"] = suggested_name
     sidecar.save(json_file_path, image_root=image_root)
     print(f"Wrote metadata to {json_file_path}")
 
