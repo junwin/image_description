@@ -5,7 +5,7 @@ from PIL import Image
 from image_description.cli import marie_prepare_cli, marie_publish_cli
 
 
-def test_web_preserves_aspect_and_converts_png(tmp_path):
+def test_web_converts_png_and_fits_to_target_ratio(tmp_path):
     incoming = tmp_path / "incoming"
     incoming.mkdir()
     Image.new("RGBA", (800, 400), (40, 80, 100, 255)).save(incoming / "01-jacket.png")
@@ -15,7 +15,9 @@ def test_web_preserves_aspect_and_converts_png(tmp_path):
     photo = output / "001-01-jacket.jpg"
     with Image.open(photo) as image:
         assert image.format == "JPEG"
-        assert image.size == (800, 400)
+        assert image.size == (1080, 1920)
+        # Landscape original is contained inside the portrait frame.
+        assert image.getpixel((0, 0))[0] > 245
     assert (incoming / "01-jacket.png").exists()
 
 
