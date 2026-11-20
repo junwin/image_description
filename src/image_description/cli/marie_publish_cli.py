@@ -30,6 +30,8 @@ def publish(source_dir, repo, collection="New Arrivals", dry_run=False,
     source_dir, repo = Path(source_dir).resolve(), Path(repo).resolve()
     if collection in {".", ".."} or "/" in collection or "\\\\" in collection or not collection.strip():
         raise ValueError("Collection must be a single folder name")
+    if dry_run and (commit or push):
+        raise ValueError("--dry-run cannot be combined with --commit or --push")
     if push and not commit:
         raise ValueError("--push requires --commit")
     if not source_dir.is_dir():
