@@ -7,7 +7,7 @@ from PIL import Image, ImageFilter, ImageOps
 
 from image_description.image.describe import process_image
 
-SIZES = {"web": None, "reel": (1080, 1920)}
+SIZES = {"web": (1080, 1920), "reel": (1080, 1920)}
 EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
 
 
@@ -29,9 +29,8 @@ def render_photo(source, destination, dimensions=None, fit="contain", max_side=1
         elif fit == "cover":
             result = ImageOps.fit(image, dimensions, method=Image.Resampling.LANCZOS)
         else:
-            # Blurred photographic background avoids stretching or cutting off products.
-            bg = ImageOps.fit(image, dimensions, method=Image.Resampling.LANCZOS)
-            bg = bg.filter(ImageFilter.GaussianBlur(radius=35))
+            # Plain neutral background avoids cropping or visual distractions.
+            bg = Image.new("RGB", dimensions, (255, 255, 255))
             foreground = ImageOps.contain(image, dimensions, method=Image.Resampling.LANCZOS)
             left = (dimensions[0] - foreground.width) // 2
             top = (dimensions[1] - foreground.height) // 2
@@ -67,7 +66,7 @@ def main(argv=None):
     parser.add_argument("--output", type=Path, required=True, help="Output folder (must differ from input)")
     parser.add_argument("--format", choices=SIZES, default="web")
     parser.add_argument("--fit", choices=["contain", "cover"], default="contain")
-    parser.add_argument("--max-side", type=int, default=1200, help="Web maximum dimension; preserves aspect ratio")
+    parser.add_argument("--max-side", type=int, default=1200, help="Maximum dimension for unframed exports")
     parser.add_argument("--width", type=int, help="Override preset width")
     parser.add_argument("--height", type=int, help="Override preset height")
     parser.add_argument("--no-describe", action="store_true", help="Prepare photos without AI calls")
