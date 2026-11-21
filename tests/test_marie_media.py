@@ -58,3 +58,32 @@ def test_video_command_has_crossfades_and_duration(tmp_path):
     assert graph.count("xfade=transition=fade") == 2
     assert cmd[cmd.index("-t") + 1] == "9"
     assert "libx264" in cmd
+
+
+def test_reel_720p_mixed_input_sizes_and_two_seconds_per_photo(tmp_path):
+    import pytest
+    photos = []
+    for index, size in enumerate(((600, 900), (600, 400), (600, 600), (900, 600), (600, 900))):
+        path = tmp_path / f"{index:03d}.jpg"
+        Image.new("RGB", size).save(path)
+        photos.append(path)
+    duration = marie_video_cli.total_duration(len(photos), 2.0, 0.4)
+    assert duration == pytest.approx(8.4)
+    cmd = marie_video_cli.make_command(photos, tmp_path / "reel.mp4",
+                                       duration, 0.4, 30, "zoom")
+    graph = cmd[cmd.index("-filter_complex") + 1]
+    assert graph.count("xfade=transition=fade") == 4
+    assert graph.count("pad=720:1280") == 5
+    assert graph.count("zoompan=") == 5
+    assert cmd[cmd.index("-t") + 1] == str(duration)
+    assert "libx264" in cmd
+
+
+def test_reel_without_fade_uses_concat(tmp_path):
+    photo = tmp_path / "picture.jpg"
+    Image.new("RGB", (600, 900)).save(photo)
+    cmd = marie_video_cli.make_command([photo, photo], tmp_path / "reel.mp4",
+                                       4.0, 0.0, 30, "none")
+    graph = cmd[cmd.index("-filter_complex") + 1]
+    assert "concat=n=2:v=1:a=0" in graph
+    assert "xfade=" not in graph
