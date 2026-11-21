@@ -94,13 +94,16 @@ images and associated metadata.
 3. Make a silent MP4 using gentle alternating zoom movement and crossfades:
 
 ```bash
-marie-video ready/reel --output ready/marie-parie.mp4 --seconds 15 --fade 0.6
-marie-video ready/reel --output ready/static.mp4 --seconds 20 --movement none
+marie-video ready/reel --output ready/marie-parie.mp4 --seconds-per-image 2 --fade 0.4
+marie-video ready/reel --output ready/static.mp4 --seconds-per-image 2 --movement none
 ```
 
-The duration is the **entire MP4**, not seconds per photograph. The video is
-H.264/yuv420p, with no soundtrack; suitable to review before sharing or
-publishing. The existing `instagram-reel` command can publish this MP4
+The default is **2 seconds per photo** with overlapping **0.4-second
+crossfades**, subtle zoom/pan and a **720×1280 (9:16) H.264** output. The
+duration is `N × seconds-per-image − (N−1) × fade`, so five photos produce
+about 8.4 seconds. Use `--seconds` only to specify a fixed total duration.
+Mixed input dimensions and proportions are fitted automatically to the
+video frame on white; there is no soundtrack. Review before sharing. The existing `instagram-reel` command can publish this MP4
 separately after you prepare a matching JSON video sidecar and provide an
 accessible video URL or ngrok tunnel.
 
@@ -174,3 +177,17 @@ The rename command never contacts the AI, edits the original incoming folder,
 or writes to the website repo. It rejects collisions, missing sidecars and
 invalid filenames; `--apply` must be supplied explicitly. See
 `docs/MARIE_PHASE1.md` for the full process.
+
+### Publish into a selected website collection
+
+Provide the folder within `assets/` using `--collection`. For example:
+
+```bash
+marie-publish ready/web --repo ../marie-parie-web --collection "Button_s Bougie" --dry-run
+marie-publish ready/web --repo ../marie-parie-web --collection "assets/Button_s Bougie" --commit
+```
+
+Both collection spellings identify the existing `assets/Button_s Bougie/`
+folder. Only JPEG/PNG files are copied, and the selected `gallery.txt` gets
+new filenames at its top. Other collections are unchanged. The repository
+must be a clean local `staging` checkout, and pushing remains explicit.
