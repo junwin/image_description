@@ -46,8 +46,9 @@ Review exported images first. Then:
 
 ```bash
 marie-describe ready/web
-# Inspect the YAML files for alt text, caption, and suggested_filename.
-# No image files are renamed automatically.
+# Check captions and correct suggested_filename in each YAML as needed:
+marie-rename ready/web              # review changes only
+marie-rename ready/web --apply      # explicitly apply reviewed filenames
 marie-publish ready/web --repo ../marie-parie-web --dry-run
 ```
 
@@ -89,16 +90,43 @@ The video remains local until published separately.
 
 ## AI naming and annotations
 
-`marie-describe ready/web` invokes the Marie-Parie Galet vision preset once
-per image and writes JSON plus human-readable YAML next to each JPEG.
-Each description now also requests a `suggested_filename` such as
-`001-pink-floral-scarf.jpg`, keeping the sequence number. It never renames
-the original or prepared image. The name is **a review proposal**: check that
-it correctly identifies the product before considering renaming.
+`marie-describe ready/web` uses the Marie-Parie Galet preset to create factual
+alt text, merchandise-focused descriptions, captions and an AI suggested name
+for the main item. Keywords are separate YAML entries. The command also
+normalizes old JSON sidecars with comma-packed keywords **without another AI
+call** (unless `--overwrite` is specified).
 
-The existing `marie-publish` command still uses the actual JPEG filename.
-Do **not** rename only the JPEG: its JSON `image_filename` and
-`image_relative_path`, YAML, and prospective gallery references would
-also need updating together. Applying reviewed names is a separate
-future operation. If a JSON sidecar already exists without a suggestion,
-run `marie-describe ready/web --overwrite` to request one.
+Before publishing, inspect each `.yaml` file. To approve or correct a suggested
+name, edit its `suggested_filename:` value. Keep the numeric sequence prefix
+and use lowercase hyphenated words ending in `.jpg`, for example
+`004-dark-floral-button-tunic.jpg`.
+
+```bash
+marie-rename /home/junwin/Pictures/ready-mp/web
+# Preview checks every file and makes NO changes.
+
+marie-rename /home/junwin/Pictures/ready-mp/web --apply
+# Renames the prepared JPEG, JSON and YAML together; never touches incoming.
+```
+
+The renamer refuses missing sidecars, name collisions, unsafe paths or a changed
+sequence prefix. It updates `image_filename`, `image_relative_path` and
+`suggested_filename` in JSON, and `image` and `suggested_filename` in YAML
+while preserving the original source name and manual caption edits. Run it
+**before** `marie-publish` so the website gallery receives final filenames.
+Applying is intentionally explicit; a dry run is the default.
+
+If older JSON already exists without a name suggestion, run
+`marie-describe ready/web --overwrite` to request a new suggestion (and incur
+new AI calls). Once an image has been renamed, do not rerun `marie-resize`
+into the same output folder; use a fresh directory for another batch.
+
+## System prerequisites
+
+AI descriptions need `exiftool` in the PATH. On Linux Mint:
+
+```bash
+sudo apt install libimage-exiftool-perl
+```
+
+Reels additionally need `ffmpeg`.
