@@ -22,7 +22,7 @@ def _target_filename(source, metadata):
     name = raw.strip()
     if not SAFE_NAME.fullmatch(name):
         raise ValueError(f"Invalid suggested_filename for {source.name}: {name!r}")
-    match = re.match(r"^(\\d{3}-)", source.name)
+    match = re.match(r"^(\d{3}-)", source.name)
     if match and not name.startswith(match.group(1)):
         raise ValueError(f"Suggestion must preserve sequence {match.group(1)}: {name}")
     return name
@@ -50,7 +50,18 @@ def build_plan(folder):
             raise ValueError(f"JSON image identity does not match: {image.name}")
         if metadata.get("image_relative_path") not in (None, "", image.name):
             raise ValueError(f"JSON relative path does not match: {image.name}")
-        name = _target_filename(image, metadata)
+        yaml_text = yaml_path.read_text(encoding="utf-8")
+        lines = yaml_text.splitlines()
+        name_lines = [line.split(": ", 1)[1] for line in lines
+                      if line.startswith("suggested_filename: ")]
+        if len(name_lines) != 1:
+            raise ValueError(f"Expected one suggested_filename field: {yaml_path}")
+        try:
+            reviewed_name = json.loads(name_lines[0])
+        except json.JSONDecodeError as error:
+            raise ValueError(f"Invalid suggested_filename YAML scalar: {yaml_path}") from error
+        # The YAML file is the review surface; edited names override the AI.
+        name = _target_filename(image, {"suggested_filename": reviewed_name})
         if not name or name == image.name:
             continue
         destination = directory / name
@@ -63,9 +74,7 @@ def build_plan(folder):
             target = destination.with_suffix(suffix)
             if target.exists():
                 raise ValueError(f"Refusing to overwrite existing file: {target.name}")
-        yaml_text = yaml_path.read_text(encoding="utf-8")
         # Replace only filename fields: preserve manually edited captions etc.
-        lines = yaml_text.splitlines()
         if not any(line.startswith("image: ") for line in lines):
             raise ValueError(f"Missing image field: {yaml_path}")
         if not any(line.startswith("suggested_filename: ") for line in lines):
@@ -77,7 +86,7 @@ def build_plan(folder):
             elif line.startswith("suggested_filename: "):
                 line = "suggested_filename: " + json.dumps(name, ensure_ascii=False)
             new_lines.append(line)
-        new_yaml = "\\n".join(new_lines) + "\\n"
+        new_yaml = "\n".join(new_lines) + "\n"
         metadata["image_filename"] = name
         metadata["image_relative_path"] = name
         metadata["suggested_filename"] = name
@@ -100,7 +109,7 @@ def rename(folder, apply=False):
     for source, target, metadata, yaml_text in changes:
         new_json = target.with_suffix(".json")
         new_yaml = target.with_suffix(".yaml")
-        new_json.write_text(json.dumps(metadata, indent=4, ensure_ascii=False) + "\\n", encoding="utf-8")
+        new_json.write_text(json.dumps(metadata, indent=4, ensure_ascii=False) + "\n", encoding="utf-8")
         new_yaml.write_text(yaml_text, encoding="utf-8")
         source.rename(target)
         source.with_suffix(".json").unlink()
