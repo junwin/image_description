@@ -49,7 +49,7 @@ def make_command(paths, output, duration, fade, fps, movement, output_size=(720,
             f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2:color=white,setsar=1,"
             f"zoompan=z='{zoom}':x='{x}':y='{y}':d={frames}:"
             f"s={width}x{height}:fps={fps},trim=duration={clip:.6f},"
-            f"setpts=PTS-STARTPTS,format=yuv420p[v{i}]"
+            f"setpts=PTS-STARTPTS,fps={fps},settb=AVTB,format=yuv420p[v{i}]"
         )
     if n > 1 and fade == 0:
         joined = "".join(f"[v{i}]" for i in range(n))
