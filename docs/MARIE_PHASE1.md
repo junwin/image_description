@@ -13,7 +13,7 @@ python3 -m venv .venv
 source .venv/bin/activate
 pip install -e ../galet -e ".[dev]"  # one pip invocation for both editable projects
 python scripts/marie_phase1_smoke.py
-pytest -q tests/test_marie_media.py tests/test_marie_publish.py
+pytest -q tests/test_marie_media.py tests/test_marie_publish.py tests/test_marie_rename.py
 ```
 
 The smoke test makes three synthetic pictures and a temporary local Git
@@ -49,7 +49,7 @@ marie-describe ready/web
 # Check captions and correct suggested_filename in each YAML as needed:
 marie-rename ready/web              # review changes only
 marie-rename ready/web --apply      # explicitly apply reviewed filenames
-marie-publish ready/web --repo ../marie-parie-web --dry-run
+marie-publish ready/web --repo ../marie-parie-web --collection "New Arrivals" --dry-run
 ```
 
 For an actual staging update, ensure the website checkout is on a
@@ -57,7 +57,7 @@ For an actual staging update, ensure the website checkout is on a
 Review `gallery.txt` and source images, then run:
 
 ```bash
-marie-publish ready/web --repo ../marie-parie-web --commit
+marie-publish ready/web --repo ../marie-parie-web --collection "New Arrivals" --commit
 git -C ../marie-parie-web show --stat --oneline HEAD
 git -C ../marie-parie-web push origin staging
 ```
@@ -67,13 +67,53 @@ their filenames first in `gallery.txt`, preserving the rest of the list.
 Only `git push` triggers remote deployment. The repository's `main`
 branch is never touched by this workflow.
 
-Optional Reel video, assuming FFmpeg is installed:
+## Target a specific gallery
+
+Each website gallery lives in its own `assets/<collection>/` folder with
+a `gallery.txt` listing one image name per line. To publish the prepared
+photos to another collection, supply its existing folder name:
 
 ```bash
-marie-video ready/reel --output ready/reel.mp4 --seconds 20
+marie-publish ready/web --repo ../marie-parie-web \\
+  --collection "assets/Button_s Bougie" --dry-run
+marie-publish ready/web --repo ../marie-parie-web \\
+  --collection "Button_s Bougie" --commit
 ```
 
-The video remains local until published separately.
+Both `Button_s Bougie` and `assets/Button_s Bougie` resolve to the same
+existing gallery. The command copies only the prepared image files, prepends
+their names to that gallery's `gallery.txt`, and preserves all previous
+entries in their original order. JSON/YAML sidecars are kept locally, not
+published to the website. Check the selection carefully: a batch belongs
+to one gallery; separate collections should be prepared and published
+as separate batches. Publishing remains local until an explicit Git push.
+
+## Optional portrait Reel (720 × 1280)
+
+A separate `marie-resize` pass creates 9:16 portrait JPGs; use `contain`
+to avoid losing any boutique products at the edge of a crop.
+
+```bash
+marie-resize /home/junwin/Pictures/incomming-mp \\
+  --output /home/junwin/Pictures/ready-mp/reel \\
+  --format reel --width 720 --height 1280 --fit contain
+
+marie-video /home/junwin/Pictures/ready-mp/reel \\
+  --output /home/junwin/Pictures/ready-mp/marie-parie-reel.mp4 \\
+  --seconds-per-image 2 --fade 0.4 --movement zoom
+```
+
+The `marie-video` output defaults to **720 × 1280 H.264** at 30 fps, and can
+also accept mixed source sizes and aspect ratios directly, fitting them within
+the output frame. `--movement zoom` adds subtle (~4.5%) zoom/pan, while
+`--movement none` leaves images static. A 5-image sequence at 2 seconds
+per still with 0.4-second overlaps gives an 8.4-second silent video.
+Use `--seconds` to override total duration, or `--width` and `--height`
+for different video dimensions. FFmpeg is required (`sudo apt install ffmpeg`).
+
+The Reel remains local until published separately. Inspect its composition
+and pace with Arla before distributing it.
+
 
 ## Known MVP constraints
 
