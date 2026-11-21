@@ -71,6 +71,7 @@ sudo apt install ffmpeg  # Debian/Ubuntu/Linux Mint
 marie-resize incoming --output ready/reel --format reel
 marie-resize incoming --output ready/web --format web
 marie-describe ready/web  # optional AI descriptions and YAML sidecars
+marie-rename ready/web    # preview approved names; add --apply to rename files and sidecars
 ```
 
 The web preset is a **600×900 bounding box (2:3 portrait)** with **natural** fit:
@@ -151,9 +152,25 @@ For a Reel use contain/cover, not natural, to keep identical frames.
 ## Separation of responsibilities
 
 - `marie-resize` is image-only, requires no AI credentials and preserves the originals. Default web output: 600×900 maximum bounds and natural proportions, configurable with `--aspect-ratio`, `--width`, `--height`, and `--fit natural|contain|cover`. It writes an initially empty YAML summary.
-- `marie-describe ready/web` adds AI-generated JSON metadata and refreshes YAML while retaining its recorded original filename. Use `--overwrite` to regenerate descriptions.
+- `marie-describe ready/web` adds AI-generated JSON metadata, keyword lists, and reviewable YAML with filename suggestions. Use `--overwrite` to regenerate descriptions.
+- `marie-rename ready/web` previews safe, manually reviewed names from YAML. `--apply` renames each prepared JPEG, JSON and YAML together; run before publishing.
 - `marie-publish ready/web --repo ../marie-parie-web` updates the local staging gallery, separately from description and resizing.
 - `marie-video ready/reel --output ready/reel.mp4` produces an optional slideshow.
 - `marie-prepare` is retained as a compatibility command for the combined operation.
 
 No command above deploys to `main` automatically.
+
+### Review names before publishing
+
+Check and optionally edit `suggested_filename` in each YAML sidecar. Then:
+
+```bash
+marie-rename ready/web
+marie-rename ready/web --apply
+marie-publish ready/web --repo ../marie-parie-web --dry-run
+```
+
+The rename command never contacts the AI, edits the original incoming folder,
+or writes to the website repo. It rejects collisions, missing sidecars and
+invalid filenames; `--apply` must be supplied explicitly. See
+`docs/MARIE_PHASE1.md` for the full process.
