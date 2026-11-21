@@ -87,3 +87,23 @@ def test_reel_without_fade_uses_concat(tmp_path):
     graph = cmd[cmd.index("-filter_complex") + 1]
     assert "concat=n=2:v=1:a=0" in graph
     assert "xfade=" not in graph
+
+
+def test_reel_ffmpeg_smoke_render(tmp_path):
+    """Optional integration test: real MP4 with a crossfade, if FFmpeg exists."""
+    import shutil
+    import pytest
+    if not shutil.which("ffmpeg"):
+        pytest.skip("FFmpeg not installed")
+    incoming = tmp_path / "input"
+    incoming.mkdir()
+    Image.new("RGB", (96, 64), "red").save(incoming / "001-red.jpg")
+    Image.new("RGB", (64, 96), "blue").save(incoming / "002-blue.jpg")
+    video = tmp_path / "reel.mp4"
+    marie_video_cli.main([
+        str(incoming), "--output", str(video), "--width", "72",
+        "--height", "128", "--fps", "15", "--fade", "0.4",
+        "--seconds-per-image", "2", "--movement", "zoom",
+    ])
+    assert video.exists()
+    assert video.stat().st_size > 1000
