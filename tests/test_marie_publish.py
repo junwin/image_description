@@ -130,3 +130,38 @@ def test_marie_description_suggests_name_but_does_not_rename(tmp_path, monkeypat
 def test_suggested_filename_does_not_duplicate_prefix():
     from image_description.cli.marie_describe_cli import proposed_filename
     assert proposed_filename("001-abc.jpg", "001-pink-floral-scarf.jpg") == "001-pink-floral-scarf.jpg"
+
+
+def test_gallery_collection_folder_accepts_assets_prefix(tmp_path):
+    import pytest
+    from image_description.cli.marie_publish_cli import normalize_collection
+    assert normalize_collection("Button_s Bougie") == "Button_s Bougie"
+    assert normalize_collection("assets/Button_s Bougie") == "Button_s Bougie"
+    assert normalize_collection("assets/New Arrivals") == "New Arrivals"
+    for invalid in ("../outside", "assets/../outside", "", "assets/", "a/b"):
+        with pytest.raises(ValueError):
+            normalize_collection(invalid)
+
+
+def test_publish_updates_only_selected_collection(tmp_path):
+    repo = tmp_path / "site"
+    arrivals = repo / "assets" / "New Arrivals"
+    bougie = repo / "assets" / "Button_s Bougie"
+    arrivals.mkdir(parents=True)
+    bougie.mkdir(parents=True)
+    (arrivals / "gallery.txt").write_text("arrivals-old.jpg\n")
+    (bougie / "gallery.txt").write_text("bougie-old.jpg\n")
+    subprocess.run(["git", "init", "-b", "staging", str(repo)], check=True, capture_output=True)
+    subprocess.run(["git", "-C", str(repo), "config", "user.name", "Test"], check=True)
+    subprocess.run(["git", "-C", str(repo), "config", "user.email", "test@example.com"], check=True)
+    subprocess.run(["git", "-C", str(repo), "add", "."], check=True)
+    subprocess.run(["git", "-C", str(repo), "commit", "-m", "Initial"], check=True, capture_output=True)
+    prepared = tmp_path / "ready"
+    prepared.mkdir()
+    Image.new("RGB", (60, 90)).save(prepared / "001-new-item.jpg")
+    marie_publish_cli.publish(prepared, repo, collection="assets/Button_s Bougie")
+    assert (bougie / "001-new-item.jpg").exists()
+    assert (bougie / "gallery.txt").read_text().splitlines() == [
+        "001-new-item.jpg", "bougie-old.jpg"]
+    assert (arrivals / "gallery.txt").read_text() == "arrivals-old.jpg\n"
+    assert not (arrivals / "001-new-item.jpg").exists()
