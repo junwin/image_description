@@ -64,7 +64,7 @@ def test_rename_preview_and_apply_updates_sidecars(tmp_path):
 def test_rename_rejects_collision_before_mutation(tmp_path):
     first = make_prepared(tmp_path, "001-old.jpg", "001-floral-top.jpg")
     second = make_prepared(tmp_path, "002-old.jpg", "002-floral-top.jpg")
-    (tmp_path / "001-floral-top.jpg").write_bytes(b"already here")
+    make_prepared(tmp_path, "001-floral-top.jpg", "")
     with pytest.raises(ValueError, match="overwrite"):
         marie_rename_cli.rename(tmp_path, apply=True)
     assert first.exists()
