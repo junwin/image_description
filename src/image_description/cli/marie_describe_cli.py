@@ -7,7 +7,7 @@ from pathlib import Path
 
 from PIL import Image
 
-from image_description.image.describe import process_image
+from image_description.image.describe import process_image, merge_keywords
 from image_description.cli.marie_prepare_cli import images_in, write_yaml
 
 
@@ -47,10 +47,12 @@ def main(argv=None):
             print(f"Skipped YAML for {image.name}: no JSON sidecar")
             continue
         metadata = json.loads(sidecar.read_text(encoding="utf-8"))
+        # Repair older AI responses containing a single comma-packed keyword.
+        metadata["keywords"] = merge_keywords([], metadata.get("keywords", []))
         reviewed_name = proposed_filename(image.name, metadata.get("suggested_filename", ""))
         if reviewed_name:
             metadata["suggested_filename"] = reviewed_name
-            sidecar.write_text(json.dumps(metadata, indent=4, ensure_ascii=False) + "\n", encoding="utf-8")
+        sidecar.write_text(json.dumps(metadata, indent=4, ensure_ascii=False) + "\n", encoding="utf-8")
         previous = yaml_path.read_text(encoding="utf-8") if yaml_path.exists() else ""
         original = image.name
         for line in previous.splitlines():
