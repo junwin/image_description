@@ -15,16 +15,17 @@ def file_size_mb(path: str) -> float:
 
 
 def merge_keywords(existing: List[str], new: List[str]) -> List[str]:
+    """Normalize and deduplicate keywords, including legacy comma-packed lists."""
     seen = set()
     merged: List[str] = []
-    for kw in existing + new:
-        norm = kw.strip()
-        if not norm:
+    for item in (existing or []) + (new or []):
+        if item is None:
             continue
-        lower = norm.lower()
-        if lower not in seen:
-            seen.add(lower)
-            merged.append(norm)
+        for piece in str(item).split(","):
+            keyword = piece.strip()
+            if keyword and keyword.casefold() not in seen:
+                seen.add(keyword.casefold())
+                merged.append(keyword)
     return merged
 
 
