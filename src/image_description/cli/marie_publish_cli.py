@@ -25,11 +25,21 @@ def fingerprint(path):
     return digest.hexdigest()
 
 
+def normalize_collection(collection):
+    """Accept a collection folder name or its assets/ relative path."""
+    collection = str(collection).strip()
+    if collection.startswith("assets/"):
+        collection = collection[len("assets/"):]
+    if (not collection or collection in {".", ".."}
+            or "/" in collection or chr(92) in collection):
+        raise ValueError("Collection must be one existing assets/ folder name")
+    return collection
+
+
 def publish(source_dir, repo, collection="New Arrivals", dry_run=False,
             commit=False, push=False):
     source_dir, repo = Path(source_dir).resolve(), Path(repo).resolve()
-    if collection in {".", ".."} or "/" in collection or "\\\\" in collection or not collection.strip():
-        raise ValueError("Collection must be a single folder name")
+    collection = normalize_collection(collection)
     if dry_run and (commit or push):
         raise ValueError("--dry-run cannot be combined with --commit or --push")
     if push and not commit:
@@ -98,7 +108,8 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("input", type=Path, help="Folder containing prepared web JPGs")
     parser.add_argument("--repo", type=Path, required=True, help="Local marie-parie-web checkout")
-    parser.add_argument("--collection", default="New Arrivals")
+    parser.add_argument("--collection", default="New Arrivals",
+                        help='Existing collection folder, e.g. "Button_s Bougie" or "assets/New Arrivals"')
     parser.add_argument("--dry-run", action="store_true", help="Preview without copying")
     parser.add_argument("--commit", action="store_true", help="Commit changes on staging")
     parser.add_argument("--push", action="store_true", help="Push staging (requires --commit)")
