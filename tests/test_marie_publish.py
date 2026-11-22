@@ -165,3 +165,28 @@ def test_publish_updates_only_selected_collection(tmp_path):
         "001-new-item.jpg", "bougie-old.jpg"]
     assert (arrivals / "gallery.txt").read_text() == "arrivals-old.jpg\n"
     assert not (arrivals / "001-new-item.jpg").exists()
+
+
+def test_local_preview_branch_can_prepare_but_not_commit_or_push(tmp_path):
+    import pytest
+    repo = tmp_path / "site"
+    collection = repo / "assets" / "New Arrivals"
+    collection.mkdir(parents=True)
+    (collection / "gallery.txt").write_text("original.jpg\n")
+    subprocess.run(["git", "init", "-b", "staging", str(repo)], check=True, capture_output=True)
+    subprocess.run(["git", "-C", str(repo), "config", "user.name", "Test"], check=True)
+    subprocess.run(["git", "-C", str(repo), "config", "user.email", "test@example.com"], check=True)
+    subprocess.run(["git", "-C", str(repo), "add", "."], check=True)
+    subprocess.run(["git", "-C", str(repo), "commit", "-m", "Initial"], check=True, capture_output=True)
+    subprocess.run(["git", "-C", str(repo), "checkout", "-b", "preview/marie-parie/arla-123"],
+                   check=True, capture_output=True)
+    prepared = tmp_path / "prepared"
+    prepared.mkdir()
+    Image.new("RGB", (40, 60), "pink").save(prepared / "001-new.jpg")
+    marie_publish_cli.publish(prepared, repo, collection="New Arrivals")
+    assert (collection / "001-new.jpg").is_file()
+    assert (collection / "gallery.txt").read_text().startswith("001-new.jpg\n")
+    with pytest.raises(ValueError, match="local preparation"):
+        marie_publish_cli.publish(prepared, repo, commit=True)
+    with pytest.raises(ValueError, match="local preparation"):
+        marie_publish_cli.publish(prepared, repo, commit=True, push=True)
