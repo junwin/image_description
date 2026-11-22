@@ -48,8 +48,12 @@ def publish(source_dir, repo, collection="New Arrivals", dry_run=False,
         raise ValueError("Prepared image folder not found")
     if not (repo / ".git").exists():
         raise ValueError("Website checkout must be a local Git repository")
-    if git(repo, "branch", "--show-current") != "staging":
-        raise ValueError("Website checkout must be on staging (never main)")
+    branch = git(repo, "branch", "--show-current")
+    preview = branch.startswith("preview/marie-parie/")
+    if branch != "staging" and not preview:
+        raise ValueError("Website checkout must be on staging or a Marie-Parie preview branch")
+    if preview and (commit or push):
+        raise ValueError("Preview branches are for local preparation only; use Lucy preview publish")
     if git(repo, "status", "--porcelain"):
         raise ValueError("Website checkout has uncommitted changes; use a clean checkout")
     target = repo / "assets" / collection
