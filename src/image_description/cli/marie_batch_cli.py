@@ -27,9 +27,9 @@ def main(argv=None):
 
     resize = command.add_parser("resize", help="Prepare web or Reel images")
     resize.add_argument("--format", choices=["web", "reel"], required=True)
-    resize.add_argument("--fit", choices=["auto", "natural", "contain", "cover"], default="auto")
+    resize.add_argument("--fit", choices=["auto", "natural", "contain", "contain-blur", "cover"], default="auto")
     resize.add_argument("--background", default="white",
-                        help="Canvas fill for contain, e.g. gray or #888888")
+                        help="Canvas fill for solid contain (ignored by contain-blur)")
     resize.add_argument("--overwrite", action="store_true",
                         help="Regenerate previously prepared images")
 
