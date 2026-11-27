@@ -3,7 +3,7 @@ import argparse
 import json
 from pathlib import Path
 
-from PIL import Image, ImageOps, ImageColor
+from PIL import Image, ImageOps, ImageColor, ImageEnhance, ImageFilter
 from image_description.image.describe import process_image
 
 
@@ -22,6 +22,7 @@ def render_photo(source, destination, dimensions, fit="natural", background="whi
 
     natural: image fits inside dimensions, without any added border.
     contain: complete image on an exact-size, configurable-colour canvas.
+    contain-blur: whole image on a softly blurred, darkened image background.
     cover: exact-size image cropped as needed.
     """
     destination.parent.mkdir(parents=True, exist_ok=True)
@@ -45,6 +46,18 @@ def render_photo(source, destination, dimensions, fit="natural", background="whi
             result = image.resize(size, Image.Resampling.LANCZOS)
         elif fit == "cover":
             result = ImageOps.fit(image, dimensions, method=Image.Resampling.LANCZOS)
+        elif fit == "contain-blur":
+            # Fill the background using an enlarged, cropped copy of this photo.
+            # Blur and dim it so the complete sharp foreground remains dominant.
+            bg = ImageOps.fit(image, dimensions, method=Image.Resampling.LANCZOS)
+            blur_radius = max(8, round(min(dimensions) * 0.045))
+            bg = bg.filter(ImageFilter.GaussianBlur(blur_radius))
+            bg = ImageEnhance.Brightness(bg).enhance(0.72)
+            foreground = ImageOps.contain(image, dimensions, method=Image.Resampling.LANCZOS)
+            left = (dimensions[0] - foreground.width) // 2
+            top = (dimensions[1] - foreground.height) // 2
+            bg.paste(foreground, (left, top))
+            result = bg
         elif fit == "contain":
             # Plain neutral background avoids cropping or visual distractions.
             bg = Image.new("RGB", dimensions, canvas_color)
@@ -54,7 +67,7 @@ def render_photo(source, destination, dimensions, fit="natural", background="whi
             bg.paste(foreground, (left, top))
             result = bg
         else:
-            raise ValueError("fit must be natural, contain, or cover")
+            raise ValueError("fit must be natural, contain, contain-blur, or cover")
         result.save(destination, "JPEG", quality=92, optimize=True)
 
 
@@ -85,8 +98,8 @@ def main(argv=None):
     parser.add_argument("input", type=Path, help="Folder of original photographs")
     parser.add_argument("--output", type=Path, required=True, help="Output folder (must differ from input)")
     parser.add_argument("--format", choices=SIZES, default="web")
-    parser.add_argument("--fit", choices=["auto", "natural", "contain", "cover"], default="auto",
-                        help="auto: natural for web, contain for reel")
+    parser.add_argument("--fit", choices=["auto", "natural", "contain", "contain-blur", "cover"], default="auto",
+                        help="auto: natural for web, contain-blur for reel")
     parser.add_argument("--background", default="white",
                         help="Background for contain padding, e.g. gray, #888888, or white")
     parser.add_argument("--aspect-ratio", help="Target width:height, e.g. 2:3 or 600:900; keeps preset width unless --width is supplied")
@@ -126,7 +139,7 @@ def main(argv=None):
     if args.format == "reel" and (dimensions[0] % 2 or dimensions[1] % 2):
         parser.error("reel dimensions must be even for H.264 compatibility")
 
-    fit = ("natural" if args.format == "web" else "contain") if args.fit == "auto" else args.fit
+    fit = ("natural" if args.format == "web" else "contain-blur") if args.fit == "auto" else args.fit
     sources = images_in(folder)
     if not sources:
         parser.error("no JPG, PNG or WebP images found")
