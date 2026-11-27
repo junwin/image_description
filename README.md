@@ -146,7 +146,7 @@ The design is:
 
 ### 1.1 Python and virtual environment
 
-You'll need Python 3.9+ installed.
+You'll need Python 3.11 or newer (Galet requires 3.11+).
 
 From the project directory:
 
@@ -154,14 +154,15 @@ From the project directory:
 cd ~/src/repos/image_description
 python3 -m venv .venv
 source .venv/bin/activate
-pip install -r requirements.txt
+pip install -e ../galet -e ".[dev]"
 ```
 
-The `requirements.txt` includes:
-
-- `openai` – for calling the OpenAI API
-- `Pillow` – for basic image handling
-- `requests` – for HTTP calls (used by some helpers)
+The `pyproject.toml` is the single source of runtime dependencies and CLI entry points.
+The single pip command installs both sibling repositories in editable mode and
+includes the `pytest` development extra. For a standard installation of
+`image_description` against an already available Galet package, use
+`pip install -e .`. Optional extras: `.[ngrok]` and `.[gemini]`.
+`requirements.txt` remains only as a compatibility shortcut to `-e .`.
 
 ### 1.2 OpenAI credentials
 
@@ -648,3 +649,143 @@ Skipped entries show `skipped (older post)` in the scan output (and
 `scanned_at`; scores are still recalculated from stored data. Only live fetches
 incur the existing request/file delays. `--dry-run` still fetches eligible posts
 without saving changes.
+
+
+## Marie-Parie fitting and smoother Reel motion
+
+Before preparing a mixed batch, Gwen can inspect all image dimensions **without
+calling an AI model**:
+
+```bash
+marie-inspect /home/junwin/Pictures/incomming-mp/batch-XXXX --format reel --json
+```
+
+This reports each photo's dimensions, orientation, estimated percentage lost
+under a central 9:16 crop, and a conservative fit recommendation. Geometry
+alone cannot locate faces, garments, or other important subjects; the final
+choice belongs to Arla.
+
+Resizing retains existing modes, now with custom padding colour:
+
+```bash
+# Keep every part of a square/landscape photograph on a grey 9:16 canvas.
+marie-resize INPUT --output OUTPUT --format reel --fit contain --background "#888888"
+
+# Fill 9:16 by cropping the sides or top/bottom (Arla should review the crop).
+marie-resize INPUT --output OUTPUT --format reel --fit cover
+
+# Preserve original proportions; no artificial border (web/editorial use).
+marie-resize INPUT --output OUTPUT --format web --fit natural
+```
+
+A fit option applies to the whole call: for a mixed batch that needs different
+fits per photo, run the resize command separately on selected subsets and
+assemble approved results in their final Reel input folder.
+
+```bash
+# Two-times intermediate motion rendering is the default. Set 1 to compare
+# the original renderer, or 3 for higher quality at greater CPU/memory cost.
+marie-video INPUT --output OUTPUT/reel.mp4 --movement zoom --supersample 2
+```
+
+The supersampled zoom reduces pixel-grid stepping by sampling movement on a
+larger frame, then downsampling with Lanczos. It does not guarantee zero jitter:
+frame rate, display refresh rate and source patterns can also affect smoothness.
+
+AI-assisted reframing / generative expansion is deliberately **not** part of
+this stage; it would require separate user opt-in, model cost approval and a
+clear distinction between original merchandise photos and synthesized content.
+
+
+## Marie-Parie UAT workspace (new batches)
+
+The workflow uses a single workspace under `~/Pictures/marie-parie`. Lucy's
+`attachments export` operation should use `external_root="pictures"` and
+`relative_path="marie-parie/incoming"`, which creates a fresh
+`batch-xxxxxxxxxxxx` folder automatically.
+
+```text
+~/Pictures/marie-parie/
+├── incoming/
+│   └── batch-0123456789ab/        # Original exported uploads, unchanged
+├── prepared/
+│   ├── web/
+│   │   └── batch-0123456789ab/    # Resized website photos + sidecars
+│   └── reel/
+│       └── batch-0123456789ab/    # Images with approved Reel fitting
+└── output/
+    └── reels/
+        └── batch-0123456789ab.mp4 # Finished Reel
+```
+
+The `marie-batch` command translates one returned batch ID into all paths,
+so the agent or operator does not have to assemble destination paths manually.
+It accepts an optional `--workspace` to override the default location.
+It never modifies the original `incoming` files.
+
+```bash
+# Inspect the batch and see recommended crop/contain options (no AI calls)
+marie-batch --batch batch-0123456789ab inspect
+
+# Preserve whole photos on a neutral grey 9:16 frame
+marie-batch --batch batch-0123456789ab resize \
+  --format reel --fit contain --background "#888888"
+
+# Alternative: crop the photographs to fill the 9:16 canvas
+marie-batch --batch batch-0123456789ab resize \
+  --format reel --fit cover --overwrite
+
+# Generate the completed MP4, including gentle supersampled zoom
+marie-batch --batch batch-0123456789ab reel --seconds 15
+
+# Prepare web images separately; naming/description/publishing continues
+# through the existing marie-describe, marie-rename, and marie-publish CLIs
+marie-batch --batch batch-0123456789ab resize --format web
+
+# Print all locations for scripts and agent handlers
+marie-batch --batch batch-0123456789ab paths
+```
+
+A fit choice applies to an entire resize invocation. When mixing styles
+per image, use the existing `marie-resize` command on selected source subsets
+and the same batch's destination folder. New folders are created as needed;
+no migration or renaming of historical batches is performed.
+
+The batch output path is deterministic. The Reel command refuses to overwrite
+an existing MP4 unless explicitly called with `--overwrite`. This makes
+repeat operations in an agent-driven session safer.
+
+### Reel background options for Arla
+
+Reel resizing now defaults to `--fit contain-blur`: the entire original is
+kept sharp and uncropped, while an enlarged, blurred, dimmed copy fills 9:16.
+This does not call an AI model.
+
+```bash
+marie-batch --batch batch-0123456789ab resize --format reel
+marie-batch --batch batch-0123456789ab resize --format reel --fit contain --background '#888888' --overwrite
+marie-batch --batch batch-0123456789ab resize --format reel --fit cover --overwrite
+```
+
+Website resizing still defaults to natural proportions. When changing the
+fitting of images already prepared, specify `--overwrite` to regenerate them.
+
+### Website descriptions and approved descriptive filenames
+
+After resizing website images, **before copying them to the private gallery preview**:
+
+```bash
+marie-batch --batch batch-0123456789ab describe
+marie-batch --batch batch-0123456789ab review-names
+# Only after Arla approves the proposed filenames:
+marie-batch --batch batch-0123456789ab rename --apply
+```
+
+`describe` uses the existing Marie-Parie AI preset and creates or refreshes
+JSON/YAML metadata and numbered descriptive filename suggestions. It incurs
+model requests for images without descriptions. `review-names` makes no changes.
+`rename --apply` renames the prepared JPG and matching sidecars together,
+never the uploaded originals; there is also a non-destructive `rename` preview.
+The finished web folder is then ready for `marie-publish` into an isolated
+website preview worktree. For a repeat batch, check existing sidecars and avoid
+`describe --overwrite` unless metadata regeneration is explicitly wanted.
