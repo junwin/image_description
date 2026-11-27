@@ -13,6 +13,8 @@ from image_description.marie_workspace import batch_paths
 from image_description.cli.marie_prepare_cli import main as prepare_main
 from image_description.cli.marie_inspect_cli import inspect_batch
 from image_description.cli.marie_video_cli import main as video_main
+from image_description.cli.marie_describe_cli import main as describe_main
+from image_description.cli.marie_rename_cli import rename as rename_web
 
 
 def main(argv=None):
@@ -32,6 +34,17 @@ def main(argv=None):
                         help="Canvas fill for solid contain (ignored by contain-blur)")
     resize.add_argument("--overwrite", action="store_true",
                         help="Regenerate previously prepared images")
+
+    describe = command.add_parser("describe", help="Generate suggested web image names and descriptions using AI")
+    describe.add_argument("--overwrite", action="store_true", help="Regenerate AI metadata (may replace edits)")
+    describe.add_argument("--model", help="AI model override")
+    describe.add_argument("--provider", help="AI provider override")
+    describe.add_argument("--credential-path", help="AI credentials override")
+
+    command.add_parser("review-names", help="Show proposed web image renames without making changes")
+    rename = command.add_parser("rename", help="Apply reviewed web image filenames and their sidecars")
+    rename.add_argument("--apply", action="store_true",
+                        help="Rename only after explicit user approval; otherwise preview")
 
     reel = command.add_parser("reel", help="Render a Reel from prepared/reel batch images")
     reel.add_argument("--seconds-per-image", type=float, default=2.0)
@@ -73,6 +86,28 @@ def main(argv=None):
         if args.overwrite:
             arguments.append("--overwrite")
         prepare_main(arguments)
+        return
+
+    if args.action == "describe":
+        if not paths.web.is_dir():
+            parser.error(f"Prepare web images first: {paths.web}")
+        arguments = [str(paths.web)]
+        for option in ("model", "provider", "credential_path"):
+            value = getattr(args, option)
+            if value is not None:
+                arguments += ["--" + option.replace("_", "-"), value]
+        if args.overwrite:
+            arguments.append("--overwrite")
+        describe_main(arguments)
+        return
+
+    if args.action in ("review-names", "rename"):
+        if not paths.web.is_dir():
+            parser.error(f"Prepare web images first: {paths.web}")
+        try:
+            rename_web(paths.web, apply=(args.action == "rename" and args.apply))
+        except (ValueError, OSError, json.JSONDecodeError) as error:
+            parser.error(str(error))
         return
 
     if args.action == "reel":
