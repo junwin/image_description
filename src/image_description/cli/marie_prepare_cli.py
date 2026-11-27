@@ -3,7 +3,7 @@ import argparse
 import json
 from pathlib import Path
 
-from PIL import Image, ImageOps
+from PIL import Image, ImageOps, ImageColor
 from image_description.image.describe import process_image
 
 
@@ -17,11 +17,11 @@ def images_in(directory):
                   key=lambda p: p.name.lower())
 
 
-def render_photo(source, destination, dimensions, fit="natural"):
+def render_photo(source, destination, dimensions, fit="natural", background="white"):
     """Auto-orient and resize with optional cropping or padded canvas.
 
     natural: image fits inside dimensions, without any added border.
-    contain: complete image on an exact-size white canvas.
+    contain: complete image on an exact-size, configurable-colour canvas.
     cover: exact-size image cropped as needed.
     """
     destination.parent.mkdir(parents=True, exist_ok=True)
@@ -34,6 +34,10 @@ def render_photo(source, destination, dimensions, fit="natural"):
             image.paste(rgba, mask=rgba.getchannel("A"))
         else:
             image = oriented.convert("RGB")
+        try:
+            canvas_color = ImageColor.getrgb(background)
+        except ValueError as exc:
+            raise ValueError(f"Invalid background colour: {background}") from exc
         if fit == "natural":
             width, height = image.size
             scale = min(dimensions[0] / width, dimensions[1] / height)
@@ -43,7 +47,7 @@ def render_photo(source, destination, dimensions, fit="natural"):
             result = ImageOps.fit(image, dimensions, method=Image.Resampling.LANCZOS)
         elif fit == "contain":
             # Plain neutral background avoids cropping or visual distractions.
-            bg = Image.new("RGB", dimensions, (255, 255, 255))
+            bg = Image.new("RGB", dimensions, canvas_color)
             foreground = ImageOps.contain(image, dimensions, method=Image.Resampling.LANCZOS)
             left = (dimensions[0] - foreground.width) // 2
             top = (dimensions[1] - foreground.height) // 2
@@ -83,6 +87,8 @@ def main(argv=None):
     parser.add_argument("--format", choices=SIZES, default="web")
     parser.add_argument("--fit", choices=["auto", "natural", "contain", "cover"], default="auto",
                         help="auto: natural for web, contain for reel")
+    parser.add_argument("--background", default="white",
+                        help="Background for contain padding, e.g. gray, #888888, or white")
     parser.add_argument("--aspect-ratio", help="Target width:height, e.g. 2:3 or 600:900; keeps preset width unless --width is supplied")
     parser.add_argument("--width", type=int, help="Override preset width")
     parser.add_argument("--height", type=int, help="Override preset height")
@@ -133,7 +139,7 @@ def main(argv=None):
         if image.exists() and not args.overwrite:
             print(f"Using existing {image.name}")
         else:
-            render_photo(source, image, dimensions, fit)
+            render_photo(source, image, dimensions, fit, args.background)
             print(f"Prepared {image.name}")
         if not args.no_describe:
             process_image(str(image), preset="marie-parie", overwrite=args.overwrite,
