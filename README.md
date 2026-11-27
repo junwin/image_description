@@ -649,3 +649,49 @@ Skipped entries show `skipped (older post)` in the scan output (and
 `scanned_at`; scores are still recalculated from stored data. Only live fetches
 incur the existing request/file delays. `--dry-run` still fetches eligible posts
 without saving changes.
+
+
+## Marie-Parie fitting and smoother Reel motion
+
+Before preparing a mixed batch, Gwen can inspect all image dimensions **without
+calling an AI model**:
+
+```bash
+marie-inspect /home/junwin/Pictures/incomming-mp/batch-XXXX --format reel --json
+```
+
+This reports each photo's dimensions, orientation, estimated percentage lost
+under a central 9:16 crop, and a conservative fit recommendation. Geometry
+alone cannot locate faces, garments, or other important subjects; the final
+choice belongs to Arla.
+
+Resizing retains existing modes, now with custom padding colour:
+
+```bash
+# Keep every part of a square/landscape photograph on a grey 9:16 canvas.
+marie-resize INPUT --output OUTPUT --format reel --fit contain --background "#888888"
+
+# Fill 9:16 by cropping the sides or top/bottom (Arla should review the crop).
+marie-resize INPUT --output OUTPUT --format reel --fit cover
+
+# Preserve original proportions; no artificial border (web/editorial use).
+marie-resize INPUT --output OUTPUT --format web --fit natural
+```
+
+A fit option applies to the whole call: for a mixed batch that needs different
+fits per photo, run the resize command separately on selected subsets and
+assemble approved results in their final Reel input folder.
+
+```bash
+# Two-times intermediate motion rendering is the default. Set 1 to compare
+# the original renderer, or 3 for higher quality at greater CPU/memory cost.
+marie-video INPUT --output OUTPUT/reel.mp4 --movement zoom --supersample 2
+```
+
+The supersampled zoom reduces pixel-grid stepping by sampling movement on a
+larger frame, then downsampling with Lanczos. It does not guarantee zero jitter:
+frame rate, display refresh rate and source patterns can also affect smoothness.
+
+AI-assisted reframing / generative expansion is deliberately **not** part of
+this stage; it would require separate user opt-in, model cost approval and a
+clear distinction between original merchandise photos and synthesized content.
