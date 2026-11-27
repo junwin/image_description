@@ -67,3 +67,38 @@ def test_zoom_filter_runs_with_real_ffmpeg(tmp_path):
                        (90, 160), supersample=2)
     subprocess.run(cmd, check=True, capture_output=True, timeout=45)
     assert output.is_file() and output.stat().st_size > 0
+
+
+def test_contain_blur_keeps_entire_square_photo(tmp_path):
+    original = tmp_path / "square.png"
+    target = tmp_path / "blurred.jpg"
+    # Distinct centre and background means padding is detectable.
+    from PIL import ImageDraw
+    img = Image.new("RGB", (300, 300), "#2244aa")
+    ImageDraw.Draw(img).rectangle((100, 100, 200, 200), fill="#e6aa22")
+    img.save(original)
+    render_photo(original, target, (720, 1280), "contain-blur")
+    with Image.open(target) as result:
+        assert result.size == (720, 1280)
+        # Square original is fully visible in a 720x720 central square.
+        assert result.getpixel((360, 640))[0] > 180
+        assert result.getpixel((360, 300))[2] > 100
+        # Top and bottom contain the blurred and darkened image, not flat grey.
+        assert result.getpixel((360, 10))[2] > result.getpixel((360, 10))[0]
+        assert result.getpixel((360, 10)) != (128, 128, 128)
+
+
+def test_reel_auto_uses_blurred_background_without_changing_web_default(tmp_path):
+    from image_description.cli.marie_prepare_cli import main
+    incoming = tmp_path / "incoming"
+    incoming.mkdir()
+    Image.new("RGB", (300, 300), "#1177cc").save(incoming / "photo.png")
+    reel = tmp_path / "reel"
+    main([str(incoming), "--output", str(reel), "--format", "reel", "--no-describe"])
+    with Image.open(reel / "001-photo.jpg") as photo:
+        assert photo.size == (1080, 1920)
+        assert photo.getpixel((0, 0)) != (255, 255, 255)
+    web = tmp_path / "web"
+    main([str(incoming), "--output", str(web), "--format", "web", "--no-describe"])
+    with Image.open(web / "001-photo.jpg") as photo:
+        assert photo.size == (600, 600)
