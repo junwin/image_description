@@ -769,3 +769,23 @@ marie-batch --batch batch-0123456789ab resize --format reel --fit cover --overwr
 
 Website resizing still defaults to natural proportions. When changing the
 fitting of images already prepared, specify `--overwrite` to regenerate them.
+
+### Website descriptions and approved descriptive filenames
+
+After resizing website images, **before copying them to the private gallery preview**:
+
+```bash
+marie-batch --batch batch-0123456789ab describe
+marie-batch --batch batch-0123456789ab review-names
+# Only after Arla approves the proposed filenames:
+marie-batch --batch batch-0123456789ab rename --apply
+```
+
+`describe` uses the existing Marie-Parie AI preset and creates or refreshes
+JSON/YAML metadata and numbered descriptive filename suggestions. It incurs
+model requests for images without descriptions. `review-names` makes no changes.
+`rename --apply` renames the prepared JPG and matching sidecars together,
+never the uploaded originals; there is also a non-destructive `rename` preview.
+The finished web folder is then ready for `marie-publish` into an isolated
+website preview worktree. For a repeat batch, check existing sidecars and avoid
+`describe --overwrite` unless metadata regeneration is explicitly wanted.
