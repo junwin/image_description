@@ -78,3 +78,52 @@ def test_reel_requires_prepared_images_and_does_not_overwrite(tmp_path, monkeypa
     marie_batch_cli.main(prefix + ["reel", "--overwrite"])
     assert called
     assert str(destination) in called[0]
+
+
+def test_web_describe_and_review_before_approved_rename(tmp_path, monkeypatch, capsys):
+    source = tmp_path / "incoming" / BATCH
+    source.mkdir(parents=True)
+    Image.new("RGB", (200, 300), "pink").save(source / "jewellery.png")
+    prefix = ["--workspace", str(tmp_path), "--batch", BATCH]
+    marie_batch_cli.main(prefix + ["resize", "--format", "web"])
+    web = tmp_path / "prepared" / "web" / BATCH
+
+    from image_description.cli import marie_describe_cli
+    def fake_process(path, **kwargs):
+        assert kwargs["suggest_filename"] is True
+        path = Path(path)
+        path.with_suffix(".json").write_text(json.dumps({
+            "image_filename": path.name,
+            "image_relative_path": path.name,
+            "suggested_filename": "silver-pendant-necklace",
+            "image_description": "A pendant on a chain.",
+            "enhanced_description": "Pendant jewellery on a plain background.",
+            "keywords": ["pendant"],
+        }))
+    monkeypatch.setattr(marie_describe_cli, "process_image", fake_process)
+    marie_batch_cli.main(prefix + ["describe"])
+    original = web / "001-jewellery.jpg"
+    assert original.is_file()
+    assert (web / "001-jewellery.yaml").is_file()
+    assert "A pendant on a chain." in (web / "001-jewellery.yaml").read_text()
+
+    marie_batch_cli.main(prefix + ["review-names"])
+    assert original.is_file()
+    assert "001-silver-pendant-necklace.jpg" in capsys.readouterr().out
+
+    marie_batch_cli.main(prefix + ["rename"])
+    assert original.is_file()  # preview does not apply the name
+    marie_batch_cli.main(prefix + ["rename", "--apply"])
+    renamed = web / "001-silver-pendant-necklace.jpg"
+    assert renamed.is_file()
+    assert renamed.with_suffix(".yaml").is_file()
+    assert renamed.with_suffix(".json").is_file()
+    assert not original.exists()
+    assert (source / "jewellery.png").exists()
+
+
+def test_describe_needs_web_resize_first(tmp_path):
+    source = tmp_path / "incoming" / BATCH
+    source.mkdir(parents=True)
+    with pytest.raises(SystemExit):
+        marie_batch_cli.main(["--workspace", str(tmp_path), "--batch", BATCH, "describe"])
