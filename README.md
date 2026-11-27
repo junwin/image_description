@@ -754,3 +754,18 @@ no migration or renaming of historical batches is performed.
 The batch output path is deterministic. The Reel command refuses to overwrite
 an existing MP4 unless explicitly called with `--overwrite`. This makes
 repeat operations in an agent-driven session safer.
+
+### Reel background options for Arla
+
+Reel resizing now defaults to `--fit contain-blur`: the entire original is
+kept sharp and uncropped, while an enlarged, blurred, dimmed copy fills 9:16.
+This does not call an AI model.
+
+```bash
+marie-batch --batch batch-0123456789ab resize --format reel
+marie-batch --batch batch-0123456789ab resize --format reel --fit contain --background '#888888' --overwrite
+marie-batch --batch batch-0123456789ab resize --format reel --fit cover --overwrite
+```
+
+Website resizing still defaults to natural proportions. When changing the
+fitting of images already prepared, specify `--overwrite` to regenerate them.
