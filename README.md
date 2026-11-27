@@ -695,3 +695,62 @@ frame rate, display refresh rate and source patterns can also affect smoothness.
 AI-assisted reframing / generative expansion is deliberately **not** part of
 this stage; it would require separate user opt-in, model cost approval and a
 clear distinction between original merchandise photos and synthesized content.
+
+
+## Marie-Parie UAT workspace (new batches)
+
+The workflow uses a single workspace under `~/Pictures/marie-parie`. Lucy's
+`attachments export` operation should use `external_root="pictures"` and
+`relative_path="marie-parie/incoming"`, which creates a fresh
+`batch-xxxxxxxxxxxx` folder automatically.
+
+```text
+~/Pictures/marie-parie/
+├── incoming/
+│   └── batch-0123456789ab/        # Original exported uploads, unchanged
+├── prepared/
+│   ├── web/
+│   │   └── batch-0123456789ab/    # Resized website photos + sidecars
+│   └── reel/
+│       └── batch-0123456789ab/    # Images with approved Reel fitting
+└── output/
+    └── reels/
+        └── batch-0123456789ab.mp4 # Finished Reel
+```
+
+The `marie-batch` command translates one returned batch ID into all paths,
+so the agent or operator does not have to assemble destination paths manually.
+It accepts an optional `--workspace` to override the default location.
+It never modifies the original `incoming` files.
+
+```bash
+# Inspect the batch and see recommended crop/contain options (no AI calls)
+marie-batch --batch batch-0123456789ab inspect
+
+# Preserve whole photos on a neutral grey 9:16 frame
+marie-batch --batch batch-0123456789ab resize \
+  --format reel --fit contain --background "#888888"
+
+# Alternative: crop the photographs to fill the 9:16 canvas
+marie-batch --batch batch-0123456789ab resize \
+  --format reel --fit cover --overwrite
+
+# Generate the completed MP4, including gentle supersampled zoom
+marie-batch --batch batch-0123456789ab reel --seconds 15
+
+# Prepare web images separately; naming/description/publishing continues
+# through the existing marie-describe, marie-rename, and marie-publish CLIs
+marie-batch --batch batch-0123456789ab resize --format web
+
+# Print all locations for scripts and agent handlers
+marie-batch --batch batch-0123456789ab paths
+```
+
+A fit choice applies to an entire resize invocation. When mixing styles
+per image, use the existing `marie-resize` command on selected source subsets
+and the same batch's destination folder. New folders are created as needed;
+no migration or renaming of historical batches is performed.
+
+The batch output path is deterministic. The Reel command refuses to overwrite
+an existing MP4 unless explicitly called with `--overwrite`. This makes
+repeat operations in an agent-driven session safer.
