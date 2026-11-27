@@ -14,7 +14,7 @@ def total_duration(image_count, seconds_per_image=2.0, fade=0.4):
     return image_count * seconds_per_image - (image_count - 1) * fade
 
 
-def make_command(paths, output, duration, fade, fps, movement, output_size=(720, 1280)):
+def make_command(paths, output, duration, fade, fps, movement, output_size=(720, 1280), supersample=2):
     """Build an FFmpeg command; scale/letterbox mixed aspect ratios as needed.
 
     Each image is displayed for (duration + overlaps) / N seconds, with
@@ -27,12 +27,17 @@ def make_command(paths, output, duration, fade, fps, movement, output_size=(720,
     width, height = output_size
     if min(width, height) <= 0 or width % 2 or height % 2:
         raise ValueError("H.264 output dimensions must be positive and even")
+    if supersample not in (1, 2, 3):
+        raise ValueError("supersample must be 1, 2 or 3")
     if movement not in ("none", "zoom"):
         raise ValueError("movement must be none or zoom")
     clip = (duration + (n - 1) * fade) / n
     if n > 1 and fade >= clip:
         raise ValueError("Crossfade must be shorter than each clip")
     frames = max(2, round(clip * fps))
+    # Zoompan samples its crop at integer input pixels. Enlarging the working
+    # frame before motion and reducing with Lanczos attenuates visible stepping.
+    motion_width, motion_height = width * supersample, height * supersample
     filters = []
     for i in range(n):
         if movement == "none":
@@ -45,10 +50,11 @@ def make_command(paths, output, duration, fade, fps, movement, output_size=(720,
                  else "(iw-iw/zoom)*(1-" + position + ")")
             y = "(ih-ih/zoom)/2"
         filters.append(
-            f"[{i}:v]scale={width}:{height}:force_original_aspect_ratio=decrease:flags=lanczos,"
-            f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2:color=white,setsar=1,"
+            f"[{i}:v]scale={motion_width}:{motion_height}:force_original_aspect_ratio=decrease:flags=lanczos,"
+            f"pad={motion_width}:{motion_height}:(ow-iw)/2:(oh-ih)/2:color=white,setsar=1,"
             f"zoompan=z='{zoom}':x='{x}':y='{y}':d={frames}:"
-            f"s={width}x{height}:fps={fps},trim=duration={clip:.6f},"
+            f"s={motion_width}x{motion_height}:fps={fps},"
+            f"scale={width}:{height}:flags=lanczos,trim=duration={clip:.6f},"
             f"setpts=PTS-STARTPTS,fps={fps},settb=AVTB,format=yuv420p[v{i}]"
         )
     if n > 1 and fade == 0:
@@ -90,6 +96,8 @@ def main(argv=None):
     parser.add_argument("--fps", type=int, default=30)
     parser.add_argument("--width", type=int, default=720, help="Output width (default 720)")
     parser.add_argument("--height", type=int, default=1280, help="Output height (default 1280)")
+    parser.add_argument("--supersample", type=int, choices=[1, 2, 3], default=2,
+                        help="Render motion at 2x resolution before downsampling (1 disables)")
     parser.add_argument("--movement", choices=["zoom", "none"], default="zoom",
                         help="Subtle zoom/pan or static images")
     args = parser.parse_args(argv)
@@ -111,7 +119,7 @@ def main(argv=None):
         if duration <= 0:
             raise ValueError("Total duration must be positive")
         command = make_command(paths, args.output, duration, args.fade,
-                               args.fps, args.movement, (args.width, args.height))
+                               args.fps, args.movement, (args.width, args.height), args.supersample)
     except ValueError as error:
         parser.error(str(error))
     args.output.parent.mkdir(parents=True, exist_ok=True)
